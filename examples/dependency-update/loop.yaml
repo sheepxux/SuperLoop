@@ -1,0 +1,104 @@
+apiVersion: loop-engineering/v1
+kind: Loop
+metadata:
+  name: dependency-update
+  owner: engineering
+  description: "Review dependency updates, draft low-risk upgrade PRs, and route risky changes to humans."
+  risk: medium
+  tags:
+    - dependencies
+    - maintenance
+goal:
+  objective: "Keep dependencies current by selecting bounded low-risk updates, applying them in isolation, and requiring evaluator evidence before a PR is opened."
+  acceptanceCriteria:
+    - "Only a bounded number of dependency updates are attempted per run."
+    - "Lockfile changes are reviewed by an independent evaluator."
+    - "Security-sensitive or major updates are routed to human review."
+  stopConditions:
+    - "No eligible dependency updates are found."
+    - "The run reaches the configured budget or timeout."
+  blockedConditions:
+    - "The package registry is unavailable."
+    - "The update requires a migration decision."
+    - "Tests cannot be run locally or in CI."
+discovery:
+  sources:
+    - type: package-manager
+      description: "Outdated direct dependencies from the repository package manager."
+      command: "npm outdated --json"
+  ranking:
+    strategy: "Prefer patch and minor updates with changelog links and no peer dependency conflicts."
+    deterministicFirst: true
+  maxItemsPerRun: 5
+handoff:
+  worker: dependency-update-generator
+  isolation: worktree
+  worktree:
+    enabled: true
+    branchPrefix: loop-engineering/dependency-update
+  permissions:
+    - read-repo
+    - write-worktree
+    - run-tests
+    - open-pr
+  prompt: "Apply one bounded dependency update, update lockfiles, run checks, and summarize compatibility notes. Do not merge."
+verification:
+  evaluator: dependency-update-evaluator
+  independent: true
+  defaultStance: assume-broken
+  requiredEvidence:
+    - tests
+    - build
+    - diff-review
+  commands:
+    - "npm test"
+    - "npm run build"
+  verdicts:
+    - pass
+    - fail
+    - blocked
+    - needs-human
+persistence:
+  statePath: ".loop-engineering/loops/dependency-update/state.json"
+  runLogDir: ".loop-engineering/loops/dependency-update/runs"
+  inboxPath: ".loop-engineering/loops/dependency-update/inbox.md"
+  decisionsPath: ".loop-engineering/loops/dependency-update/decisions.md"
+schedule:
+  runtime: manual
+  cadence: "manual"
+  timezone: "Asia/Shanghai"
+  timeoutMinutes: 60
+  concurrency:
+    group: dependency-update
+    cancelInProgress: false
+safety:
+  budgets:
+    maxItemsPerRun: 5
+    maxDailyRuns: 1
+    maxRuntimeMinutes: 60
+    maxEstimatedUsdPerRun: 8
+  retries:
+    maxRetriesPerItem: 1
+    onRepeatedFailure: move-to-inbox
+  humanGates:
+    autoAllowed:
+      - "read repository"
+      - "write isolated worktree"
+      - "run tests"
+    needsReview:
+      - "open pull request"
+      - "comment on issue"
+    humanOnly:
+      - "merge pull request"
+      - "major version migration decision"
+      - "deploy production"
+      - "delete data"
+      - "spend money"
+      - "change permissions"
+  failurePolicy:
+    onBudgetExceeded: stop-run
+    onUnsafeAction: block
+outputs:
+  - run-summary
+  - inbox-update
+  - pull-request

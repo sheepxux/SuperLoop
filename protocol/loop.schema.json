@@ -1,0 +1,417 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v0.1.0/protocol/loop.schema.json",
+  "title": "Loop-Engineering Spec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "goal",
+    "discovery",
+    "handoff",
+    "verification",
+    "persistence",
+    "schedule",
+    "safety",
+    "outputs"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "loop-engineering/v1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Loop"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "owner"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objective",
+        "acceptanceCriteria",
+        "stopConditions",
+        "blockedConditions"
+      ],
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 10
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "stopConditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "blockedConditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "ranking", "maxItemsPerRun"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["type", "description"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 3
+              }
+            }
+          }
+        },
+        "ranking": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strategy", "deterministicFirst"],
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "minLength": 3
+            },
+            "deterministicFirst": {
+              "type": "boolean"
+            }
+          }
+        },
+        "maxItemsPerRun": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["worker", "isolation", "worktree", "permissions", "prompt"],
+      "properties": {
+        "worker": {
+          "type": "string",
+          "minLength": 3
+        },
+        "isolation": {
+          "type": "string",
+          "enum": ["worktree", "branch", "task-directory", "thread", "none"]
+        },
+        "worktree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "branchPrefix"],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "branchPrefix": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "read-repo",
+              "write-worktree",
+              "run-tests",
+              "open-pr",
+              "comment-issue",
+              "write-external-system",
+              "deploy",
+              "merge",
+              "delete-data",
+              "spend-money",
+              "change-permissions"
+            ]
+          }
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 10
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evaluator", "independent", "defaultStance", "requiredEvidence", "commands", "verdicts"],
+      "properties": {
+        "evaluator": {
+          "type": "string",
+          "minLength": 3
+        },
+        "independent": {
+          "type": "boolean",
+          "const": true
+        },
+        "defaultStance": {
+          "type": "string",
+          "enum": ["assume-broken", "neutral"]
+        },
+        "requiredEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "tests",
+              "typecheck",
+              "lint",
+              "build",
+              "diff-review",
+              "screenshot",
+              "dom-check",
+              "security-check",
+              "manual-review",
+              "artifact-review"
+            ]
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verdicts": {
+          "type": "array",
+          "minItems": 4,
+          "contains": {
+            "const": "fail"
+          },
+          "items": {
+            "type": "string",
+            "enum": ["pass", "fail", "blocked", "needs-human"]
+          }
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statePath", "runLogDir", "inboxPath", "decisionsPath"],
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runLogDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inboxPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decisionsPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "cadence", "timezone", "timeoutMinutes", "concurrency"],
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": ["manual", "github-actions", "codex-automation", "cron", "cloud-scheduler", "custom"]
+        },
+        "cadence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 360
+        },
+        "concurrency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["group", "cancelInProgress"],
+          "properties": {
+            "group": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cancelInProgress": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["budgets", "retries", "humanGates", "failurePolicy"],
+      "properties": {
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxItemsPerRun", "maxDailyRuns", "maxRuntimeMinutes"],
+          "properties": {
+            "maxItemsPerRun": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "maxDailyRuns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 24
+            },
+            "maxRuntimeMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 360
+            },
+            "maxEstimatedUsdPerRun": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "retries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxRetriesPerItem", "onRepeatedFailure"],
+          "properties": {
+            "maxRetriesPerItem": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "onRepeatedFailure": {
+              "type": "string",
+              "enum": ["move-to-inbox", "stop-run", "needs-human"]
+            }
+          }
+        },
+        "humanGates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["autoAllowed", "needsReview", "humanOnly"],
+          "properties": {
+            "autoAllowed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "needsReview": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "humanOnly": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "failurePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["onBudgetExceeded", "onUnsafeAction"],
+          "properties": {
+            "onBudgetExceeded": {
+              "type": "string",
+              "enum": ["stop-run", "move-to-inbox", "needs-human"]
+            },
+            "onUnsafeAction": {
+              "type": "string",
+              "enum": ["block", "needs-human"]
+            }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "run-summary",
+          "inbox-update",
+          "pull-request",
+          "issue-comment",
+          "patch",
+          "report",
+          "artifact"
+        ]
+      }
+    }
+  }
+}

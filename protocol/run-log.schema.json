@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v0.1.0/protocol/run-log.schema.json",
+  "title": "Loop Run Log",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "loop", "runId", "startedAt", "status", "discovered", "results"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "loop-engineering/v1"
+    },
+    "loop": {
+      "type": "string"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "startedAt": {
+      "type": "string"
+    },
+    "finishedAt": {
+      "type": ["string", "null"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["running", "passed", "failed", "blocked", "budget-exceeded"]
+    },
+    "discovered": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["itemId", "verdict"],
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["pass", "fail", "blocked", "needs-human"]
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "budget": {
+      "type": "object"
+    }
+  }
+}

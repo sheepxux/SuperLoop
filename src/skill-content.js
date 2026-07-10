@@ -1,0 +1,303 @@
+const DISCOVERY_EXAMPLES = new Map([
+  ["github-actions", 'gh run list --status failure --limit 20 --json databaseId,displayTitle,conclusion,url,headBranch'],
+  ["package-manager", "npm outdated --json"],
+  ["issue-label", 'gh issue list --state open --label <label> --limit 20 --json number,title,labels,url'],
+  ["playwright-report", "read the JSON/HTML report under the configured path for failing or flaky tests"],
+  ["manual", "read the loop inbox and decisions files for queued work"]
+]);
+
+const PLATFORM_NOTES = new Map([
+  [
+    "codex",
+    "Run the worker and the evaluator in separate Codex contexts. Never reuse the worker context for evaluation, and never paste worker reasoning into the evaluator context — hand over only the diff, notes, and commands."
+  ],
+  [
+    "claude-code",
+    "Run the worker as one subagent and the evaluator as a different subagent (see the rendered files under `.claude/agents/`). Do not share the worker's chain of thought with the evaluator — hand over only the diff, notes, and commands."
+  ],
+  [
+    "openclaw",
+    "Map the worker and the evaluator to separate OpenClaw tasks. The local harness owns command execution; the loop semantics below stay portable."
+  ],
+  [
+    "generic-harness",
+    "This contract assumes only file IO and command execution. Run the worker and the evaluator as separate processes or prompts with no shared conversational state."
+  ]
+]);
+
+export function executorSkill(platform, spec = null) {
+  const name = spec ? spec.metadata.name : "<loop-name>";
+  const loopDir = spec ? loopDirOf(spec) : ".loop-engineering/loops/<loop-name>";
+  const frontmatter = buildFrontmatter(platform, spec);
+  const title = spec ? spec.metadata.name : "Loop-Engineering";
+  const objectiveLine = spec ? `\nObjective: ${spec.goal.objective}\n` : "";
+
+  return `${frontmatter}# ${title}
+${objectiveLine}
+Run exactly one bounded iteration of this loop. \`loop.yaml\` is the contract; this file tells you how to execute it. If this file and \`loop.yaml\` disagree, \`loop.yaml\` wins.
+
+${PLATFORM_NOTES.get(platform)}
+
+If \`loopctl\` is not on PATH, use \`npx -y -p @sheepxux/loop-engineering loopctl\`.
+${spec ? "" : `
+## 0. Locate or create the loop
+
+Loops live in \`.loop-engineering/loops/<loop-name>/\` with \`loop.yaml\`, \`state.json\`, \`inbox.md\`, \`decisions.md\`, and \`runs/\`. If the loop does not exist yet:
+
+\`\`\`bash
+loopctl init <loop-name> --out .loop-engineering/loops
+\`\`\`
+
+Then edit \`loop.yaml\` (goal, discovery, verification, safety) and validate it before running anything.
+`}
+## 1. Preflight (mechanical — never skip)
+
+\`\`\`bash
+loopctl validate ${loopDir}/loop.yaml
+loopctl next ${loopDir}
+\`\`\`
+
+\`next\` prints JSON. Obey it:
+
+- If \`ok\` is \`false\`: report the \`reasons\` and stop. Do not run the loop.
+- \`itemsAllowed\` is the hard cap on items for this run.
+- Work \`retryQueue\` items before discovering new work.
+- Move every item in \`exhausted\` to the inbox with its listed action. Do not retry them.
+- Mention \`needsHuman\` items in your final summary so a human sees them.
+
+## 2. Discover
+
+Pull at most \`itemsAllowed\` items from \`discovery.sources\`, ranked by \`discovery.ranking.strategy\` (deterministic signals before model judgment).
+
+${discoverySection(spec)}
+
+Give every item a stable id (run id, issue number, package name). Record all discovered items — they go into the run log even when not attempted.
+
+## 3. Hand off (worker)
+
+Work one item at a time${spec ? ` as the \`${spec.handoff.worker}\` role` : ""}, inside the isolation declared in \`handoff.isolation\`${isolationNote(spec)}:
+
+\`\`\`bash
+git worktree add ../${name}-<item-id> -b ${spec ? spec.handoff.worktree.branchPrefix : "<branchPrefix>"}-<item-id>
+\`\`\`
+
+- The worker touches files only inside its worktree and uses only \`handoff.permissions\`.
+- Worker output: the change itself plus a \`worker-notes.md\` (what changed, why, how to verify).
+- The worker never runs verification and never declares its own work done.
+- If the worker hits a blocked condition, it writes the blocker to its notes and stops.
+- Clean up when the item is finished: \`git worktree remove ../${name}-<item-id>\`.
+
+## 4. Verify (evaluator)
+
+The evaluator${spec ? ` (\`${spec.verification.evaluator}\`)` : ""} runs in a separate context and assumes the result is broken until evidence proves otherwise.
+
+- Give the evaluator the diff, the worker notes, and the commands — not the worker's reasoning.
+- Run every command in \`verification.commands\`${commandsList(spec)} and capture exit codes.
+- Write the result as JSON following the evaluator schema, then check it mechanically:
+
+\`\`\`bash
+loopctl check evaluator <result-file.json>
+\`\`\`
+
+- The verdict must be exactly one of \`pass\`, \`fail\`, \`blocked\`, \`needs-human\`. Missing required evidence means \`fail\`, not \`pass\`.
+
+## 5. Persist (mechanical — never skip)
+
+Compose one run log for the whole run (\`loopctl schema run-log\` prints the schema):
+
+\`\`\`json
+{
+  "apiVersion": "loop-engineering/v1",
+  "loop": "${name}",
+  "runId": "<UTC timestamp, e.g. 2026-07-10T0900Z>",
+  "startedAt": "<ISO timestamp>",
+  "finishedAt": "<ISO timestamp>",
+  "status": "passed",
+  "discovered": [{ "id": "<item-id>", "summary": "...", "source": "..." }],
+  "results": [{ "itemId": "<item-id>", "verdict": "pass", "summary": "..." }],
+  "budget": { "runtimeMinutes": 12, "itemsAttempted": 1, "estimatedUsd": 0 }
+}
+\`\`\`
+
+Then record it:
+
+\`\`\`bash
+loopctl record ${loopDir} --run <run-log.json>
+\`\`\`
+
+This validates the run log, files it under \`runs/\`, and updates \`state.json\` budgets and items in one step. Never edit \`state.json\` by hand.
+
+Finally, append every \`blocked\` and \`needs-human\` item to the inbox file with links and one line of context.
+
+## 6. Stop and report
+
+Stop immediately when \`itemsAllowed\` is reached, a stop or blocked condition triggers, a human-only gate is hit, or the runtime budget expires.
+
+End with a short human-readable summary: items attempted, verdicts, what landed in the inbox, and what the next run should look at.
+
+## Hard rules
+
+- The worker never approves its own output. Only the evaluator issues verdicts.
+- Never merge, deploy, delete data, spend money, or change permissions. These are human-only${humanOnlyList(spec)}.
+- Enforcement in the v1 protocol is advisory: nothing in Loop-Engineering physically prevents a violation. Treat these rules as absolute precisely because you are the only enforcement layer.
+`;
+}
+
+export function chatgptSkill(spec = null) {
+  const name = spec ? spec.metadata.name : "loop-engineering";
+  const title = spec ? spec.metadata.name : "Loop-Engineering";
+  const objectiveLine = spec ? `\nObjective: ${spec.goal.objective}\n` : "";
+
+  return `---
+name: ${name}
+description: ${
+    spec
+      ? `Advise on the ${spec.metadata.name} loop using Loop-Engineering — design and review the spec, review run logs and evaluator evidence, and act as the human-review assistant. This environment cannot execute the loop.`
+      : "Design, review, and advise on Loop-Engineering workflows (loop.yaml specs, run logs, evaluator evidence). Use when the user wants to create or improve a recurring agent loop from an environment that cannot execute it."
+  }
+---
+
+# ${title} (advisor)
+${objectiveLine}
+You are running in an environment without repository or filesystem access. You cannot execute this loop — do not pretend to. Your three jobs:
+
+## 1. Design and review the spec
+
+- Draft or improve \`loop.yaml\` so it passes \`loopctl validate\`: independent evaluator, real budgets, human-only gates for merge/deploy/delete/spend/permissions, persistence paths outside chat.
+- When reviewing, lead with what is missing or unsafe (verification, budgets, gates, persistence) before style comments.
+
+## 2. Review run evidence
+
+- When the user pastes a run log, state file, or evaluator result, check it against the Loop-Engineering contract: does every attempted item have an evaluator verdict backed by evidence? Are budgets being respected? Did anything bypass a human gate?
+- Assume results are broken until the pasted evidence proves otherwise. A worker's claim is not evidence.
+
+## 3. Act as the human at the gate
+
+- When asked to approve something behind a \`needsReview\` or \`humanOnly\` gate, summarize the evidence, the blast radius, and what could go wrong — then give a clear recommendation. The final decision stays with the user.
+
+Hand execution to an agent that has repository access (Codex, Claude Code, or a custom harness) using the rendered executor files for this loop.
+`;
+}
+
+export function workerPrompt(spec) {
+  return `# Worker: ${spec.handoff.worker}
+
+Goal: ${spec.goal.objective}
+
+Handle one discovered item only. Use the smallest safe change that can satisfy the acceptance criteria.
+
+Permissions:
+${spec.handoff.permissions.map((permission) => `- ${permission}`).join("\n")}
+
+Isolation:
+- Mode: ${spec.handoff.isolation}
+- Branch prefix: ${spec.handoff.worktree.branchPrefix}
+- Create it with: \`git worktree add ../${spec.metadata.name}-<item-id> -b ${spec.handoff.worktree.branchPrefix}-<item-id>\`
+
+Rules:
+- Do not evaluate your own work. Do not run the verification commands to declare success; that is the evaluator's job.
+- Do not perform human-only actions (merge, deploy, delete data, spend money, change permissions).
+- Write a \`worker-notes.md\` in the worktree: what changed, why, and how the evaluator can verify it.
+- If blocked, write the blocker to \`worker-notes.md\` and stop. Do not improvise around missing access.
+
+Task prompt:
+${spec.handoff.prompt}
+`;
+}
+
+export function evaluatorPrompt(spec) {
+  const commands = spec.verification.commands.length > 0
+    ? spec.verification.commands.map((command) => `- \`${command}\``).join("\n")
+    : "- No commands configured; require artifact or manual evidence.";
+
+  return `# Evaluator: ${spec.verification.evaluator}
+
+Default stance: ${spec.verification.defaultStance}
+
+Assume the worker result is wrong until evidence proves otherwise. Do not rely on the worker's rationale as proof. You receive the diff, the worker notes, and the commands — nothing else.
+
+Required evidence:
+${spec.verification.requiredEvidence.map((item) => `- ${item}`).join("\n")}
+
+Commands (run each one, capture the exit code):
+${commands}
+
+Write your result as JSON matching the evaluator schema (\`loopctl schema evaluator\`), then verify it:
+
+\`\`\`bash
+loopctl check evaluator <result-file.json>
+\`\`\`
+
+Allowed verdicts:
+${spec.verification.verdicts.map((verdict) => `- ${verdict}`).join("\n")}
+
+Reject if:
+- Required evidence is missing or a command fails.
+- The change exceeds the worker permissions.
+- A human-only action is required to finish.
+- The result cannot be understood without chat history.
+`;
+}
+
+export function staticAdapterFiles() {
+  return new Map([
+    ["adapters/codex/SKILL.md", executorSkill("codex")],
+    ["adapters/claude-code/SKILL.md", executorSkill("claude-code")],
+    ["adapters/chatgpt/SKILL.md", chatgptSkill()],
+    ["adapters/openclaw/loop-instructions.md", executorSkill("openclaw")],
+    ["adapters/generic-harness/loop-instructions.md", executorSkill("generic-harness")]
+  ]);
+}
+
+function buildFrontmatter(platform, spec) {
+  if (platform === "openclaw" || platform === "generic-harness") {
+    return "";
+  }
+  const name = spec ? spec.metadata.name : "loop-engineering";
+  const description = spec
+    ? `Run one bounded iteration of the ${spec.metadata.name} loop using Loop-Engineering — preflight with loopctl, bounded discovery, isolated worker, independent evaluator, recorded state. Use when continuing this loop or reviewing its state.`
+    : "Run one bounded iteration of a Loop-Engineering workflow from a loop.yaml spec. Use when a user asks to create, continue, or review a recurring goal loop with discovery, isolated handoff, independent verification, persisted state, budgets, and human gates.";
+  return `---\nname: ${name}\ndescription: ${description}\n---\n\n`;
+}
+
+function loopDirOf(spec) {
+  return spec.persistence.statePath.replace(/\/state\.json$/, "");
+}
+
+function discoverySection(spec) {
+  if (spec) {
+    const lines = spec.discovery.sources.map((source) => {
+      const hint = source.command
+        ? ` Command: \`${source.command}\``
+        : DISCOVERY_EXAMPLES.has(source.type)
+          ? ` Example: \`${DISCOVERY_EXAMPLES.get(source.type)}\``
+          : "";
+      return `- \`${source.type}\`: ${source.description}${hint}`;
+    });
+    return `Configured sources:\n\n${lines.join("\n")}`;
+  }
+
+  const rows = [...DISCOVERY_EXAMPLES].map(([type, command]) => `- \`${type}\`: \`${command}\``);
+  return `Example commands by source type (adapt to what \`discovery.sources\` declares):\n\n${rows.join("\n")}`;
+}
+
+function isolationNote(spec) {
+  if (!spec || spec.handoff.isolation === "worktree") {
+    return ". For `worktree` isolation";
+  }
+  return `. This loop declares \`${spec.handoff.isolation}\` isolation; if it were \`worktree\`, the pattern would be`;
+}
+
+function commandsList(spec) {
+  if (!spec || spec.verification.commands.length === 0) {
+    return "";
+  }
+  return ` (${spec.verification.commands.map((command) => `\`${command}\``).join(", ")})`;
+}
+
+function humanOnlyList(spec) {
+  if (!spec) {
+    return "";
+  }
+  return `. This loop declares: ${spec.safety.humanGates.humanOnly.join("; ")}`;
+}

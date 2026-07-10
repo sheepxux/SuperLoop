@@ -1,0 +1,104 @@
+apiVersion: loop-engineering/v1
+kind: Loop
+metadata:
+  name: ci-triage
+  owner: engineering
+  description: "Find recent CI failures, draft isolated fixes, and open reviewed PRs for human approval."
+  risk: medium
+  tags:
+    - ci
+    - maintenance
+goal:
+  objective: "Reduce recurring CI failures by discovering failed runs, isolating likely causes, drafting fixes, and verifying them with tests before PR review."
+  acceptanceCriteria:
+    - "Each attempted fix is tied to a specific failed run or failing test."
+    - "The evaluator reruns the relevant checks or records why they cannot run."
+    - "No merge or deployment happens without human review."
+  stopConditions:
+    - "No failed CI runs are found in the lookback window."
+    - "The loop reaches maxItemsPerRun, retry, or runtime budget."
+  blockedConditions:
+    - "CI logs are unavailable."
+    - "The failure requires credentials or production access."
+    - "The evaluator cannot reproduce or verify the result."
+discovery:
+  sources:
+    - type: github-actions
+      description: "Failed workflow runs from the last 24 hours on the default branch."
+      repository: owner/repo
+      lookback: "24h"
+  ranking:
+    strategy: "Prefer failures with clear logs, recent regressions, and small blast radius."
+    deterministicFirst: true
+  maxItemsPerRun: 3
+handoff:
+  worker: ci-fix-generator
+  isolation: worktree
+  worktree:
+    enabled: true
+    branchPrefix: loop-engineering/ci-triage
+  permissions:
+    - read-repo
+    - write-worktree
+    - run-tests
+    - open-pr
+  prompt: "For one failed CI item, identify the likely failing test or build step, make the smallest safe fix in an isolated worktree, and leave a summary plus commands for evaluation."
+verification:
+  evaluator: ci-fix-evaluator
+  independent: true
+  defaultStance: assume-broken
+  requiredEvidence:
+    - tests
+    - typecheck
+    - diff-review
+  commands:
+    - "npm test"
+    - "npm run typecheck"
+  verdicts:
+    - pass
+    - fail
+    - blocked
+    - needs-human
+persistence:
+  statePath: ".loop-engineering/loops/ci-triage/state.json"
+  runLogDir: ".loop-engineering/loops/ci-triage/runs"
+  inboxPath: ".loop-engineering/loops/ci-triage/inbox.md"
+  decisionsPath: ".loop-engineering/loops/ci-triage/decisions.md"
+schedule:
+  runtime: github-actions
+  cadence: "0 9 * * 1-5"
+  timezone: "Asia/Shanghai"
+  timeoutMinutes: 45
+  concurrency:
+    group: ci-triage
+    cancelInProgress: false
+safety:
+  budgets:
+    maxItemsPerRun: 3
+    maxDailyRuns: 2
+    maxRuntimeMinutes: 45
+    maxEstimatedUsdPerRun: 10
+  retries:
+    maxRetriesPerItem: 2
+    onRepeatedFailure: move-to-inbox
+  humanGates:
+    autoAllowed:
+      - "read repository"
+      - "write isolated worktree"
+      - "run tests"
+    needsReview:
+      - "open pull request"
+      - "comment on issue"
+    humanOnly:
+      - "merge pull request"
+      - "deploy production"
+      - "delete data"
+      - "spend money"
+      - "change permissions"
+  failurePolicy:
+    onBudgetExceeded: stop-run
+    onUnsafeAction: block
+outputs:
+  - run-summary
+  - inbox-update
+  - pull-request

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v0.1.0/protocol/state.schema.json",
+  "title": "Loop State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "loop", "lastRunAt", "items", "budgets"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "loop-engineering/v1"
+    },
+    "loop": {
+      "type": "string"
+    },
+    "lastRunAt": {
+      "type": ["string", "null"]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "retries"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "in-progress", "passed", "failed", "blocked", "needs-human"]
+          },
+          "source": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "retries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runsToday", "runtimeMinutesToday"],
+      "properties": {
+        "runsToday": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runtimeMinutesToday": {
+          "type": "number",
+          "minimum": 0
+        },
+        "estimatedUsdToday": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

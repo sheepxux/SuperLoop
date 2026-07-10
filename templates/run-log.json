@@ -1,0 +1,15 @@
+{
+  "apiVersion": "loop-engineering/v1",
+  "loop": "example-loop",
+  "runId": "2026-07-09T090000Z",
+  "startedAt": "2026-07-09T09:00:00Z",
+  "finishedAt": null,
+  "status": "running",
+  "discovered": [],
+  "results": [],
+  "budget": {
+    "runtimeMinutes": 0,
+    "itemsAttempted": 0,
+    "estimatedUsd": 0
+  }
+}

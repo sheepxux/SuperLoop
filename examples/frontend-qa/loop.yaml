@@ -1,0 +1,109 @@
+apiVersion: loop-engineering/v1
+kind: Loop
+metadata:
+  name: frontend-qa
+  owner: frontend
+  description: "Run bounded frontend QA passes with Playwright evidence and independent evaluator review."
+  risk: medium
+  tags:
+    - frontend
+    - qa
+goal:
+  objective: "Improve frontend quality by discovering risky UI surfaces, asking a worker to fix one bounded issue, and requiring evaluator evidence from browser automation."
+  acceptanceCriteria:
+    - "Each accepted change includes screenshot or DOM evidence from evaluator checks."
+    - "The evaluator verifies behavior in a real browser when available."
+    - "High-risk UX or product decisions are routed to human review."
+  stopConditions:
+    - "No eligible UI issues are discovered."
+    - "The loop reaches the configured runtime or item budget."
+  blockedConditions:
+    - "The dev server cannot start."
+    - "Required browser automation is unavailable."
+    - "The issue requires product design judgment."
+discovery:
+  sources:
+    - type: playwright-report
+      description: "Recent failing or flaky Playwright tests and visual QA notes."
+      path: "playwright-report"
+    - type: issue-label
+      description: "Open GitHub issues labeled frontend or visual-regression."
+      label: "frontend"
+  ranking:
+    strategy: "Prefer reproducible failures with a stable route and low product ambiguity."
+    deterministicFirst: true
+  maxItemsPerRun: 2
+handoff:
+  worker: frontend-fix-generator
+  isolation: worktree
+  worktree:
+    enabled: true
+    branchPrefix: loop-engineering/frontend-qa
+  permissions:
+    - read-repo
+    - write-worktree
+    - run-tests
+    - open-pr
+  prompt: "Fix one frontend issue with the smallest safe UI change. Keep layout stable across mobile and desktop. Leave route, commands, and screenshots requested for evaluation."
+verification:
+  evaluator: playwright-qa-evaluator
+  independent: true
+  defaultStance: assume-broken
+  requiredEvidence:
+    - tests
+    - screenshot
+    - dom-check
+    - diff-review
+  commands:
+    - "npm test"
+    - "npx playwright test"
+  verdicts:
+    - pass
+    - fail
+    - blocked
+    - needs-human
+persistence:
+  statePath: ".loop-engineering/loops/frontend-qa/state.json"
+  runLogDir: ".loop-engineering/loops/frontend-qa/runs"
+  inboxPath: ".loop-engineering/loops/frontend-qa/inbox.md"
+  decisionsPath: ".loop-engineering/loops/frontend-qa/decisions.md"
+schedule:
+  runtime: manual
+  cadence: "manual"
+  timezone: "Asia/Shanghai"
+  timeoutMinutes: 50
+  concurrency:
+    group: frontend-qa
+    cancelInProgress: false
+safety:
+  budgets:
+    maxItemsPerRun: 2
+    maxDailyRuns: 2
+    maxRuntimeMinutes: 50
+    maxEstimatedUsdPerRun: 10
+  retries:
+    maxRetriesPerItem: 1
+    onRepeatedFailure: move-to-inbox
+  humanGates:
+    autoAllowed:
+      - "read repository"
+      - "write isolated worktree"
+      - "run tests"
+      - "capture screenshots"
+    needsReview:
+      - "open pull request"
+      - "comment on issue"
+    humanOnly:
+      - "merge pull request"
+      - "approve product design decision"
+      - "deploy production"
+      - "delete data"
+      - "spend money"
+      - "change permissions"
+  failurePolicy:
+    onBudgetExceeded: stop-run
+    onUnsafeAction: block
+outputs:
+  - run-summary
+  - inbox-update
+  - pull-request

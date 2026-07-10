@@ -1,0 +1,16 @@
+{
+  "apiVersion": "loop-engineering/v1",
+  "loop": "example-loop",
+  "itemId": "item-001",
+  "verdict": "fail",
+  "evidence": [
+    {
+      "type": "diff-review",
+      "summary": "Evaluator reviewed the patch and found missing test evidence."
+    }
+  ],
+  "reasons": [
+    "Required test evidence is missing."
+  ],
+  "nextAction": "retry"
+}
