@@ -64,6 +64,10 @@ schedule:
   concurrency:
     group: example-loop
     cancelInProgress: false
+runner:
+  executor: dry-run
+  workingDirectory: "."
+  pollSeconds: 30
 safety:
   budgets:
     maxItemsPerRun: 3
@@ -90,6 +94,25 @@ safety:
   failurePolicy:
     onBudgetExceeded: stop-run
     onUnsafeAction: block
+evolution:
+  enabled: false
+  target: task-strategy
+  initialStrategy: "Use the smallest safe change, inspect deterministic evidence first, and preserve existing behavior outside the current work item."
+  trigger:
+    afterRuns: 5
+    consecutiveFailures: 2
+  metric:
+    name: verified-pass-rate
+    direction: maximize
+    minimumSamples: 3
+    minimumImprovement: 0.1
+  evaluator:
+    name: strategy-benchmark-evaluator
+    independent: true
+    commands:
+      - "npm test"
+  promotion:
+    mode: human-review
 outputs:
   - run-summary
   - inbox-update

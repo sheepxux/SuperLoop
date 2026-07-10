@@ -13,7 +13,7 @@ The Skill should be useful because it converts a vague automation request into a
 - A scheduler or runtime plan.
 - Budget, retry, and human-review limits.
 
-The Skill should not pretend to be a daemon. A Skill can guide Codex and scaffold files, but actual recurring execution requires a runtime such as Codex automations, GitHub Actions, cron, cloud runners, or another scheduler.
+The Skill itself remains an execution contract, while the package now includes the local `loopd` runtime. External schedulers and provider-native agents remain composable through adapters and the command-executor boundary.
 
 ## 2. Design Principle
 
@@ -84,6 +84,7 @@ Every Skill run should produce at least one of these artifacts:
 - A scheduler plan or scaffold.
 - A validation checklist.
 - A risk and budget policy.
+- A versioned task strategy and benchmark plan when the user asks for measurable self-improvement.
 - An implementation diff when the user asks Codex to build the loop.
 
 If Codex cannot produce at least one concrete artifact, the Skill is not doing useful work.
@@ -222,6 +223,8 @@ State must live outside the conversation:
 ├── state.json
 ├── inbox.md
 ├── decisions.md
+├── strategy.json
+├── experiments/
 └── runs/
     └── 2026-07-09T090000Z/
         ├── discovery.json
@@ -516,24 +519,25 @@ It should not trigger on:
 - "Summarize this article."
 - "Create a simple cron script that deletes temp files."
 
-## 16. v0.1.0 Implementation
+## 16. v0.3.0 Implementation
 
 The current release includes:
 
 - Versioned JSON Schemas under `protocol/`.
-- `loopctl validate`, `init`, `render`, `next`, `record`, `check`, `schema`, and `doctor`.
-- Stateful templates and three validated example loops.
+- `loopctl validate`, `init`, `render`, `next`, `record`, `evolve`, `status`, `runs`, `pause`, `resume`, `check`, `schema`, and `doctor`.
+- Stateful templates, strategy experiments, and validated example loops.
 - Executor and advisor adapters generated from one source.
 - A GitHub Actions renderer that validates the spec and gates execution on `loopctl next`.
+- A local `loopd` Runner with interval scheduling, atomic leases, dry-run and opt-in command executors, durable run artifacts, and timeout enforcement.
 - Runtime, validation, renderer, and publish-readiness tests.
 
-Deferred beyond v0.1.0:
+Deferred beyond v0.3.0:
 
-- The long-running `loopd` Runner.
-- Direct provider execution inside the Runner.
+- Provider-native execution inside the Runner.
+- First-class human gate files and richer cron scheduling.
 - A hosted control plane.
 
-v0.1.0 is useful if it reliably produces safe, reviewable loop specs, rejects underspecified or unsafe contracts, and records bounded runs consistently.
+v0.3.0 is useful if it reliably produces safe, reviewable loop specs, runs bounded local ticks without overlap, and preserves inspectable evidence for every Runner execution.
 
 ## 17. Validation Strategy
 
@@ -573,6 +577,6 @@ The Skill is failing if:
 
 ## 19. Recommended Next Implementation
 
-Keep v0.1.x focused on the protocol and mechanical state transitions. The next implementation step is the local file-based Runner described in [runner-design.md](runner-design.md): leases, due checks, event logs, runtime budget enforcement, and pause/resume controls.
+Keep the local file-based Runner as the reference runtime. The next implementation step is a provider-neutral executor interface with first-class Codex, Claude Code, and OpenClaw drivers, followed by human gate files and approval commands.
 
 Do not start with a hosted control plane. A local Runner is easier to trust, test, and explain, and it preserves the same portable contract used by every adapter.

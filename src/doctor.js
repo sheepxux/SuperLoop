@@ -7,6 +7,7 @@ import { validateLoopFile } from "./validation.js";
 
 const REQUIRED_FILES = [
   "README.md",
+  "README.en.md",
   "LICENSE",
   "CONTRIBUTING.md",
   "SECURITY.md",
@@ -17,12 +18,20 @@ const REQUIRED_FILES = [
   ".github/pull_request_template.md",
   "package.json",
   "bin/loopctl.js",
+  "bin/loopd.js",
+  "src/daemon-cli.js",
+  "src/lease.js",
+  "src/runner.js",
   "protocol/loop.schema.json",
   "protocol/state.schema.json",
   "protocol/evaluator.schema.json",
   "protocol/run-log.schema.json",
+  "protocol/strategy.schema.json",
+  "protocol/experiment.schema.json",
   "templates/loop.yaml",
   "templates/state.json",
+  "templates/strategy.json",
+  "templates/experiment.json",
   "adapters/codex/SKILL.md",
   "adapters/claude-code/SKILL.md",
   "adapters/chatgpt/SKILL.md",
@@ -30,20 +39,24 @@ const REQUIRED_FILES = [
   "adapters/generic-harness/loop-instructions.md",
   "examples/ci-triage/loop.yaml",
   "examples/dependency-update/loop.yaml",
-  "examples/frontend-qa/loop.yaml"
+  "examples/frontend-qa/loop.yaml",
+  "examples/self-improving-development/loop.yaml"
 ];
 
 const EXAMPLE_FILES = [
   "templates/loop.yaml",
   "examples/ci-triage/loop.yaml",
   "examples/dependency-update/loop.yaml",
-  "examples/frontend-qa/loop.yaml"
+  "examples/frontend-qa/loop.yaml",
+  "examples/self-improving-development/loop.yaml"
 ];
 
 const TEMPLATE_DATA_FILES = [
   ["state", "templates/state.json"],
   ["evaluator", "templates/evaluator-result.json"],
-  ["run-log", "templates/run-log.json"]
+  ["run-log", "templates/run-log.json"],
+  ["strategy", "templates/strategy.json"],
+  ["experiment", "templates/experiment.json"]
 ];
 
 export function runDoctor() {
@@ -97,12 +110,14 @@ function checkPackageMetadata(checks) {
   checks.push({ ok: pkg.license === "MIT", message: "package license is MIT" });
   checks.push({ ok: pkg.publishConfig?.access === "public", message: "scoped package publishes publicly" });
   checks.push({ ok: pkg.bin?.loopctl === "bin/loopctl.js", message: "loopctl bin is configured" });
+  checks.push({ ok: pkg.bin?.loopd === "bin/loopd.js", message: "loopd bin is configured" });
   checks.push({ ok: Array.isArray(pkg.files) && pkg.files.includes("protocol/"), message: "npm files include protocol/" });
+  checks.push({ ok: Array.isArray(pkg.files) && pkg.files.includes("README.en.md"), message: "npm files include English README" });
   checks.push({ ok: Boolean(pkg.repository?.url), message: "package repository URL is set" });
 }
 
 function checkSchemasParse(checks) {
-  for (const schema of ["loop", "state", "evaluator", "run-log"]) {
+  for (const schema of ["loop", "state", "evaluator", "run-log", "strategy", "experiment"]) {
     try {
       JSON.parse(readText(schemaPath(schema)));
       checks.push({ ok: true, message: `schema parses: ${schema}` });
@@ -126,6 +141,9 @@ function checkTemplateDataValidate(checks) {
   for (const [schemaName, file] of TEMPLATE_DATA_FILES) {
     try {
       const ajv = new Ajv2020({ allErrors: true });
+      if (schemaName === "experiment") {
+        ajv.addSchema(JSON.parse(readText(schemaPath("strategy"))));
+      }
       const validate = ajv.compile(JSON.parse(readText(schemaPath(schemaName))));
       const valid = validate(readData(path.join(repoRoot, file)));
       checks.push({

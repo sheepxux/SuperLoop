@@ -47,10 +47,12 @@ export function schemaPath(name) {
     loop: "loop.schema.json",
     state: "state.schema.json",
     evaluator: "evaluator.schema.json",
-    "run-log": "run-log.schema.json"
+    "run-log": "run-log.schema.json",
+    strategy: "strategy.schema.json",
+    experiment: "experiment.schema.json"
   }[name];
   if (!file) {
-    throw new Error(`Unknown schema "${name}". Expected loop, state, evaluator, or run-log.`);
+    throw new Error(`Unknown schema "${name}". Expected loop, state, evaluator, run-log, strategy, or experiment.`);
   }
   return path.join(repoRoot, "protocol", file);
 }

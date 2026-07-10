@@ -2,6 +2,10 @@
   <img src="docs/assets/cover.png" alt="Loop-Engineering" width="720">
 </p>
 
+<p align="center">
+  <strong>简体中文</strong> · <a href="README.en.md">English</a>
+</p>
+
 # Loop-Engineering
 
 面向 AI 编程代理的可移植循环工程协议与工具集。
@@ -14,9 +18,9 @@ Loop-Engineering 把周期性代理工作变成明确、可审查的循环：
 
 本项目不绑定任何特定代理。Codex、Claude Code、ChatGPT、OpenClaw 和自定义执行框架都只是同一份循环规范之上的轻量适配层。
 
-## 当前版本：v0.1.0
+## 当前版本：v0.3.0
 
-`v0.1.0` 是首个可实际使用的早期版本：核心协议、校验、状态管理、运行记录和适配器渲染已经可用，但长期运行的 Runner 尚未实现，公开 API 也还不承诺完全稳定。
+`v0.3.0` 加入首个可用的本地 Runner：`loopd` 可以扫描循环、判断到期、原子获取租约、执行 dry-run 或命令型执行器、强制超时、记录事件与运行结果，并支持暂停、恢复和状态查看。公开 API 仍不承诺完全稳定。
 
 规范中的 `apiVersion: loop-engineering/v1` 表示**协议格式版本**，不代表产品已经进入 v1.0.0。
 
@@ -35,22 +39,29 @@ Loop-Engineering 把周期性代理工作变成明确、可审查的循环：
 
 Loop-Engineering 将这些答案明确写入 `loop.yaml`。
 
-## v0.1.0 已实现能力
+## v0.3.0 已实现能力
 
 - 定义可移植的 `loop.yaml` 协议。
 - 使用 JSON Schema 和额外安全规则校验循环规范。
 - 初始化带持久状态的循环目录。
 - 机械化规划运行：`loopctl next` 读取状态和预算，判断本轮是否可以执行以及最多处理多少工作。
 - 机械化记录运行：`loopctl record` 校验运行日志、归档日志并更新状态，不需要手工编辑 JSON。
+- 使用独立的 `strategy.json` 保存可进化的任务策略，避免让候选直接修改 `loop.yaml` 安全契约。
+- 在运行日志中记录客观指标，并由 `loopctl next` 根据运行次数或连续失败判断何时需要策略实验。
+- 使用 `loopctl evolve` 对基线和候选的样本量、指标、提升阈值与命令证据进行机械校验；中风险循环默认必须人工批准后才能晋级。
+- 使用 `loopd start --once` 运行一次本地调度 tick，或持续轮询所有到期循环。
+- 使用原子文件租约阻止两个 Runner 同时执行同一个循环；过期租约可以恢复。
+- 为每次 Runner 执行生成独立目录、计划、事件流、运行日志、命令输出和摘要。
+- 使用 `loopctl status`、`runs`、`pause`、`resume` 管理本地循环。
 - 使用 `loopctl check` 检查任意协议产物。
 - 为 Codex、Claude Code、ChatGPT、OpenClaw 和通用执行框架生成适配器；其中 ChatGPT 是只负责设计与审查的顾问型适配器。
 - 提供 CI 故障分诊、依赖更新和前端质量检查的完整示例。
 
-## 后续方向：Runner
+## Runner MVP
 
-当前版本可以定义、校验、初始化、渲染和规划循环，也可以通过 `record` 记录结果，但每一轮仍需由外部代理或调度系统发起并执行。后续计划引入长期运行的 `loopd`：持续扫描 `.loop-engineering/loops`、调度到期循环、获取租约、执行一次有明确边界的迭代、写入运行日志、强制执行预算，并在人工审核门槛处停止。
+`loopd` 现在支持 `manual` 显式运行和 `every 15m` / `every 1h` / `every 1d` 形式的本地间隔调度。GitHub Actions、Codex Automation 和云调度仍由外部系统负责触发。
 
-这只是后续方向，目前不绑定新的主版本号。
+Runner 暂不内置 Codex、Claude 或 OpenClaw SDK。`command` 执行器通过环境变量向任意外部代理或脚本提供循环目录、计划、策略和运行日志目标；外部程序写草稿，Runner 负责最终校验和持久化。
 
 ## 快速开始
 
@@ -66,7 +77,35 @@ node ./bin/loopctl.js next .loop-engineering/loops/ci-triage
 
 # 运行后：归档运行日志，并在同一步骤中更新状态
 node ./bin/loopctl.js record .loop-engineering/loops/ci-triage --run run-log.json
+
+# 启用策略进化的开发循环
+node ./bin/loopctl.js init self-improving-development \
+  --from examples/self-improving-development/loop.yaml \
+  --out .loop-engineering/loops
+node ./bin/loopctl.js evolve .loop-engineering/loops/self-improving-development \
+  --experiment experiment.json
+
+# 运行一次安全 dry-run
+node ./bin/loopd.js start --once \
+  --root .loop-engineering/loops \
+  --loop self-improving-development
 ```
+
+命令型执行器默认关闭。确认信任 `loop.yaml` 中的本地命令后，显式启用：
+
+```bash
+loopd start --once --loop <loop-name> --allow-command
+```
+
+## 受控“超级迭代”
+
+Loop-Engineering 的进化对象是**任务策略**，不是模型权重，也不是安全契约：
+
+```text
+任务运行 -> 记录指标 -> 触发策略实验 -> 同基准比较 -> 独立评估 -> 晋级或拒绝
+```
+
+当前策略保存在 `strategy.json`。候选策略只能替换其中的 `instructions`；不能修改权限、预算、验证命令、证据要求或人工门槛。实验必须提供相同指标、足够的基线与候选样本，以及所有配置命令的成功证据。`human-review` 模式下，代理只能把候选推进到待审状态，不能批准自己的策略。
 
 ## 核心契约
 
@@ -78,7 +117,9 @@ node ./bin/loopctl.js record .loop-engineering/loops/ci-triage --run run-log.jso
 - `verification`：独立评估器契约与必要证据。
 - `persistence`：位于对话之外的状态和运行日志路径。
 - `schedule`：运行环境、执行频率、超时和并发行为。
+- `runner`（可选）：本地执行器、工作目录、命令和轮询间隔。
 - `safety`：预算限制、重试限制和人工审核门槛。
+- `evolution`（可选）：策略实验触发条件、主指标、最小样本、提升阈值、独立评估器和晋级模式。
 
 如果规范缺少独立验证、持久化、预算，或者没有为高风险操作设置仅限人工的门槛，校验器会直接拒绝该规范。
 
@@ -90,8 +131,13 @@ loopctl init <loop-name> --from <loop.yaml> --out .loop-engineering/loops
 loopctl render <adapter> <loop.yaml> --out <directory>
 loopctl next <loop-dir|loop.yaml>
 loopctl record <loop-dir> --run <run-log.json>
-loopctl check <loop|state|evaluator|run-log> <file...>
-loopctl schema <loop|state|evaluator|run-log>
+loopctl evolve <loop-dir> --experiment <experiment.json>
+loopctl status --root .loop-engineering/loops
+loopctl runs <loop-dir>
+loopctl pause <loop-dir> --reason "maintenance"
+loopctl resume <loop-dir>
+loopctl check <loop|state|evaluator|run-log|strategy|experiment> <file...>
+loopctl schema <loop|state|evaluator|run-log|strategy|experiment>
 loopctl doctor
 ```
 
@@ -99,7 +145,7 @@ loopctl doctor
 
 `record` 根据协议 Schema 校验运行日志；当 `results` 数量超过 `maxItemsPerRun` 时拒绝写入。它会根据当前状态和本次日志生成下一份状态，完成 Schema 校验后，再依次写入运行日志和 `state.json`。
 
-v0.1.0 支持以下渲染适配器：
+v0.3.0 支持以下渲染适配器：
 
 - `codex`
 - `claude-code`
@@ -124,9 +170,9 @@ docs/           项目设计文档
 
 生成器决定可以产出什么，评估器决定什么不能通过。
 
-v0.1.0 要求使用独立评估器，并为合并、部署、删除生产数据、花费资金或修改权限等高风险操作设置仅限人工的门槛。
+v0.3.0 要求任务结果与策略候选分别使用独立评估器，并为合并、部署、删除生产数据、花费资金或修改权限等高风险操作设置仅限人工的门槛。`command` 执行器直接使用当前用户权限，因此 `loopd` 必须显式传入 `--allow-command` 才会执行配置命令；不要对不可信仓库启用该标志。
 
-需要明确当前版本的执行边界：校验器会拒绝不安全的规范，`next` 和 `record` 会机械化执行预算与状态格式约束，但门槛本身仍然是给执行代理的指令，并不是沙箱。当前版本无法从物理层面阻止行为异常的代理执行合并或部署。运行时强制执行这些约束属于后续 Runner 的职责；在此之前，应把生成的技能视为代理必须遵守的契约，并避免向无人值守的循环提供高风险凭据。
+需要明确当前版本的执行边界：校验器、预算、状态格式、调度判断、文件租约和命令超时已经机械化执行，但代理权限和人工门槛仍然是执行契约，不是操作系统沙箱。当前版本无法从物理层面阻止行为异常的外部代理执行合并或部署，因此仍应避免向无人值守循环提供高风险凭据。
 
 ## 示例
 

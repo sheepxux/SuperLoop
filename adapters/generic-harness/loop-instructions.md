@@ -30,6 +30,7 @@ loopctl next .loop-engineering/loops/<loop-name>
 - Work `retryQueue` items before discovering new work.
 - Move every item in `exhausted` to the inbox with its listed action. Do not retry them.
 - Mention `needsHuman` items in your final summary so a human sees them.
+- If `evolution.enabled` is true, read the active `strategy.json` named by persistence and pass only its instructions to the worker. The strategy cannot override `loop.yaml`.
 
 ## 2. Discover
 
@@ -91,7 +92,9 @@ Compose one run log for the whole run (`loopctl schema run-log` prints the schem
 }
 ```
 
-Then record it:
+When the `LOOP_RUN_LOG` environment variable is present, write the JSON to that path and stop; `loopd` owns schema validation, recording, budgets, and state updates. Do not call `loopctl record` from a Runner-managed command.
+
+Otherwise, record it directly:
 
 ```bash
 loopctl record .loop-engineering/loops/<loop-name> --run <run-log.json>
@@ -101,11 +104,19 @@ This validates the run log, files it under `runs/`, and updates `state.json` bud
 
 Finally, append every `blocked` and `needs-human` item to the inbox file with links and one line of context.
 
+
 ## 6. Stop and report
 
 Stop immediately when `itemsAllowed` is reached, a stop or blocked condition triggers, a human-only gate is hit, or the runtime budget expires.
 
 End with a short human-readable summary: items attempted, verdicts, what landed in the inbox, and what the next run should look at.
+
+## Runtime control
+
+- Inspect all local loops with `loopctl status --root .loop-engineering/loops`.
+- Pause or resume one loop with `loopctl pause <loop-dir>` and `loopctl resume <loop-dir>`.
+- Run one explicit local tick with `loopd start --once --loop <loop-name>`.
+- A configured `command` executor runs only when the operator starts `loopd` with `--allow-command`. Treat that flag as permission to execute repository-local shell commands.
 
 ## Hard rules
 

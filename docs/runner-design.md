@@ -1,6 +1,17 @@
-# Loop-Engineering Runner Design
+# Loop-Engineering Runner
 
-The planned Runner should make Loop-Engineering more than a protocol and renderer: a durable runtime for goal loops.
+## Implemented in v0.3
+
+- `loopd start --once` and continuous polling.
+- Manual explicit runs plus `every Nm`, `every Nh`, and `every Nd` local cadence.
+- Atomic file leases with expired-lease recovery.
+- Per-run plan, event stream, stdout/stderr, run log, and summary.
+- Dry-run and explicit opt-in command executors.
+- `loopctl status`, `runs`, `pause`, and `resume`.
+
+Provider-native executors, cron parsing, human gate files, and the cloud control plane remain planned.
+
+The Runner makes Loop-Engineering more than a protocol and renderer: it is now a local durable runtime for goal loops.
 
 The product should feel like this:
 

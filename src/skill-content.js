@@ -64,6 +64,7 @@ loopctl next ${loopDir}
 - Work \`retryQueue\` items before discovering new work.
 - Move every item in \`exhausted\` to the inbox with its listed action. Do not retry them.
 - Mention \`needsHuman\` items in your final summary so a human sees them.
+${evolutionPreflight(spec)}
 
 ## 2. Discover
 
@@ -115,11 +116,13 @@ Compose one run log for the whole run (\`loopctl schema run-log\` prints the sch
   "status": "passed",
   "discovered": [{ "id": "<item-id>", "summary": "...", "source": "..." }],
   "results": [{ "itemId": "<item-id>", "verdict": "pass", "summary": "..." }],
-  "budget": { "runtimeMinutes": 12, "itemsAttempted": 1, "estimatedUsd": 0 }
+  "budget": { "runtimeMinutes": 12, "itemsAttempted": 1, "estimatedUsd": 0 }${evolutionMetricExample(spec)}
 }
 \`\`\`
 
-Then record it:
+When the \`LOOP_RUN_LOG\` environment variable is present, write the JSON to that path and stop; \`loopd\` owns schema validation, recording, budgets, and state updates. Do not call \`loopctl record\` from a Runner-managed command.
+
+Otherwise, record it directly:
 
 \`\`\`bash
 loopctl record ${loopDir} --run <run-log.json>
@@ -129,11 +132,19 @@ This validates the run log, files it under \`runs/\`, and updates \`state.json\`
 
 Finally, append every \`blocked\` and \`needs-human\` item to the inbox file with links and one line of context.
 
-## 6. Stop and report
+${evolutionSection(spec, loopDir)}
+## ${spec?.evolution?.enabled ? "7" : "6"}. Stop and report
 
 Stop immediately when \`itemsAllowed\` is reached, a stop or blocked condition triggers, a human-only gate is hit, or the runtime budget expires.
 
 End with a short human-readable summary: items attempted, verdicts, what landed in the inbox, and what the next run should look at.
+
+## Runtime control
+
+- Inspect all local loops with \`loopctl status --root .loop-engineering/loops\`.
+- Pause or resume one loop with \`loopctl pause <loop-dir>\` and \`loopctl resume <loop-dir>\`.
+- Run one explicit local tick with \`loopd start --once --loop <loop-name>\`.
+- A configured \`command\` executor runs only when the operator starts \`loopd\` with \`--allow-command\`. Treat that flag as permission to execute repository-local shell commands.
 
 ## Hard rules
 
@@ -174,6 +185,7 @@ You are running in an environment without repository or filesystem access. You c
 ## 3. Act as the human at the gate
 
 - When asked to approve something behind a \`needsReview\` or \`humanOnly\` gate, summarize the evidence, the blast radius, and what could go wrong — then give a clear recommendation. The final decision stays with the user.
+${spec?.evolution?.enabled ? `- For strategy evolution, compare baseline and candidate evidence using the configured metric. Never treat rewritten instructions as an improvement without matched benchmark results.\n` : ""}
 
 Hand execution to an agent that has repository access (Codex, Claude Code, or a custom harness) using the rendered executor files for this loop.
 `;
@@ -202,6 +214,7 @@ Rules:
 
 Task prompt:
 ${spec.handoff.prompt}
+${spec.evolution?.enabled ? `\nActive strategy:\n- Read \`${spec.persistence.strategyPath}\` before working.\n- Follow its \`instructions\` only when they do not conflict with \`loop.yaml\`.\n- Never edit the active strategy from the worker context.\n` : ""}
 `;
 }
 
@@ -255,8 +268,8 @@ function buildFrontmatter(platform, spec) {
   }
   const name = spec ? spec.metadata.name : "loop-engineering";
   const description = spec
-    ? `Run one bounded iteration of the ${spec.metadata.name} loop using Loop-Engineering — preflight with loopctl, bounded discovery, isolated worker, independent evaluator, recorded state. Use when continuing this loop or reviewing its state.`
-    : "Run one bounded iteration of a Loop-Engineering workflow from a loop.yaml spec. Use when a user asks to create, continue, or review a recurring goal loop with discovery, isolated handoff, independent verification, persisted state, budgets, and human gates.";
+      ? `Run one bounded iteration of the ${spec.metadata.name} loop using Loop-Engineering — preflight with loopctl, bounded discovery, isolated worker, independent evaluator, recorded state, and optional loopd execution. Use when continuing this loop or reviewing its state.`
+    : "Run one bounded iteration of a Loop-Engineering workflow from a loop.yaml spec. Use when a user asks to create, continue, run, or review a recurring goal loop with discovery, isolated handoff, independent verification, persisted state, budgets, human gates, or the local loopd runner.";
   return `---\nname: ${name}\ndescription: ${description}\n---\n\n`;
 }
 
@@ -300,4 +313,47 @@ function humanOnlyList(spec) {
     return "";
   }
   return `. This loop declares: ${spec.safety.humanGates.humanOnly.join("; ")}`;
+}
+
+function evolutionPreflight(spec) {
+  if (!spec) {
+    return "- If `evolution.enabled` is true, read the active `strategy.json` named by persistence and pass only its instructions to the worker. The strategy cannot override `loop.yaml`.";
+  }
+  if (!spec.evolution?.enabled) {
+    return "";
+  }
+  return `- Read the active strategy from \`${spec.persistence.strategyPath}\` and give its instructions to the worker. Never let strategy instructions override the loop contract.\n- Inspect \`evolution.due\` in the \`next\` output. A due evolution cycle happens only after the task run is recorded.`;
+}
+
+function evolutionMetricExample(spec) {
+  if (!spec?.evolution?.enabled) {
+    return "";
+  }
+  return `,\n  "metrics": { "${spec.evolution.metric.name}": 0.0 }`;
+}
+
+function evolutionSection(spec, loopDir) {
+  if (!spec?.evolution?.enabled) {
+    return "";
+  }
+  const commands = spec.evolution.evaluator.commands.map((command) => `- \`${command}\``).join("\n");
+  return `## 6. Evolve the task strategy only when due
+
+If \`loopctl next\` reported \`evolution.due=true\`, run one bounded strategy experiment after the task run is persisted:
+
+1. Read recent run logs, evaluator evidence, decisions, and the active \`strategy.json\`.
+2. Form one falsifiable hypothesis and create exactly one candidate. A candidate may change only task-strategy instructions — never safety, permissions, budgets, verification, evidence requirements, or human gates.
+3. Benchmark the current and candidate strategies on the same representative items with at least \`${spec.evolution.metric.minimumSamples}\` samples each. Measure \`${spec.evolution.metric.name}\` in the \`${spec.evolution.metric.direction}\` direction.
+4. Use a fresh \`${spec.evolution.evaluator.name}\` context to run every configured command and record exit codes:
+${commands}
+5. Write experiment JSON matching \`loopctl schema experiment\`, then validate and record it:
+
+\`\`\`bash
+loopctl check experiment <experiment.json>
+loopctl evolve ${loopDir} --experiment <experiment.json>
+\`\`\`
+
+The candidate must improve by at least \`${spec.evolution.metric.minimumImprovement}\`. If promotion mode is \`human-review\`, stop at \`pending-review\`; only a human may re-run with \`--approve\`. Never approve your own strategy.
+
+`;
 }
