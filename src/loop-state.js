@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readData, writeJson } from "./fs-utils.js";
+import {
+  assessExperiment,
+  evolutionPlan,
+  initialEvolutionState,
+  updateEvolutionForRun
+} from "./evolution.js";
 import { validateData, validateLoopSpec } from "./validation.js";
 
 const VERDICT_TO_STATUS = new Map([
@@ -40,8 +46,14 @@ export function resolveLoop(target) {
   const statePath = pickPath(path.join(loopDir, "state.json"), spec.persistence.statePath);
   const runLogDir = pickPath(path.join(loopDir, "runs"), spec.persistence.runLogDir);
   const inboxPath = pickPath(path.join(loopDir, "inbox.md"), spec.persistence.inboxPath);
+  const strategyPath = spec.evolution?.enabled
+    ? pickPath(path.join(loopDir, "strategy.json"), spec.persistence.strategyPath)
+    : null;
+  const experimentDir = spec.evolution?.enabled
+    ? pickPath(path.join(loopDir, "experiments"), spec.persistence.experimentDir)
+    : null;
 
-  return { spec, specPath, loopDir, statePath, runLogDir, inboxPath };
+  return { spec, specPath, loopDir, statePath, runLogDir, inboxPath, strategyPath, experimentDir };
 }
 
 function pickPath(colocated, declared) {
@@ -54,6 +66,8 @@ export function readState(statePath, loopName) {
       apiVersion: "loop-engineering/v1",
       loop: loopName,
       lastRunAt: null,
+      paused: false,
+      pauseReason: null,
       items: [],
       budgets: { runsToday: 0, runtimeMinutesToday: 0, estimatedUsdToday: 0 }
     };
@@ -78,6 +92,9 @@ export function nextRun(loop, now = new Date()) {
   const estimatedUsdToday = rolledOver ? 0 : (state.budgets.estimatedUsdToday ?? 0);
 
   const reasons = [];
+  if (state.paused) {
+    reasons.push(`Loop is paused${state.pauseReason ? `: ${state.pauseReason}` : "."}`);
+  }
   if (runsToday >= budgets.maxDailyRuns) {
     reasons.push(`Daily run budget exhausted (${runsToday}/${budgets.maxDailyRuns} runs today).`);
   }
@@ -119,11 +136,12 @@ export function nextRun(loop, now = new Date()) {
     exhausted,
     needsHuman,
     humanOnly: spec.safety.humanGates.humanOnly,
-    stopConditions: spec.goal.stopConditions
+    stopConditions: spec.goal.stopConditions,
+    evolution: evolutionPlan(spec, state, loop)
   };
 }
 
-export function recordRun(loop, runLog, { force = false, now = new Date() } = {}) {
+export function recordRun(loop, runLog, { force = false, now = new Date(), runFile: requestedRunFile = null } = {}) {
   const { spec, statePath, runLogDir } = loop;
 
   const runResult = validateData("run-log", runLog, "run log");
@@ -138,8 +156,14 @@ export function recordRun(loop, runLog, { force = false, now = new Date() } = {}
       `Run log has ${runLog.results.length} results but safety.budgets.maxItemsPerRun is ${spec.safety.budgets.maxItemsPerRun}.`
     );
   }
+  if (spec.evolution?.enabled) {
+    const metric = spec.evolution.metric.name;
+    if (typeof runLog.metrics?.[metric] !== "number" || !Number.isFinite(runLog.metrics[metric])) {
+      throw new Error(`Evolution-enabled run logs must include a finite metrics.${metric} value.`);
+    }
+  }
 
-  const runFile = path.join(runLogDir, `${slugify(runLog.runId)}.json`);
+  const runFile = requestedRunFile || path.join(runLogDir, `${slugify(runLog.runId)}.json`);
   if (fs.existsSync(runFile) && !force) {
     throw new Error(`Run log already exists: ${runFile}. Pass --force to overwrite.`);
   }
@@ -164,9 +188,15 @@ export function recordRun(loop, runLog, { force = false, now = new Date() } = {}
     apiVersion: "loop-engineering/v1",
     loop: spec.metadata.name,
     lastRunAt: runLog.finishedAt || runLog.startedAt,
+    paused: state.paused === true,
+    pauseReason: state.pauseReason ?? null,
     items,
     budgets
   };
+  const evolution = updateEvolutionForRun(spec, state.evolution, runLog);
+  if (evolution) {
+    nextState.evolution = evolution;
+  }
 
   const stateResult = validateData("state", nextState, "updated state");
   if (!stateResult.ok) {
@@ -178,6 +208,67 @@ export function recordRun(loop, runLog, { force = false, now = new Date() } = {}
 
   const attention = items.filter((item) => item.status === "blocked" || item.status === "needs-human");
   return { runFile, statePath, state: nextState, attention };
+}
+
+export function recordExperiment(loop, experiment, { approve = false, force = false, now = new Date() } = {}) {
+  const { spec, statePath, strategyPath, experimentDir } = loop;
+  if (!spec.evolution?.enabled || !strategyPath || !experimentDir) {
+    throw new Error("This loop does not enable strategy evolution.");
+  }
+
+  const experimentResult = validateData("experiment", experiment, "experiment");
+  if (!experimentResult.ok) {
+    throw new Error(`Experiment does not match protocol/experiment.schema.json: ${experimentResult.errors.join("; ")}`);
+  }
+
+  const strategy = readData(strategyPath);
+  const strategyResult = validateData("strategy", strategy, strategyPath);
+  if (!strategyResult.ok) {
+    throw new Error(`Invalid current strategy ${strategyPath}: ${strategyResult.errors.join("; ")}`);
+  }
+
+  const assessment = assessExperiment(spec, strategy, experiment, { approve });
+  const experimentFile = path.join(experimentDir, `${slugify(experiment.experimentId)}.json`);
+  if (fs.existsSync(experimentFile) && !force && !approve) {
+    throw new Error(`Experiment already exists: ${experimentFile}. Pass --force to overwrite.`);
+  }
+
+  const state = readState(statePath, spec.metadata.name);
+  const evolution = structuredClone(state.evolution || initialEvolutionState());
+  evolution.history = evolution.history.filter((entry) => entry.experimentId !== experiment.experimentId);
+  evolution.history.push({
+    experimentId: experiment.experimentId,
+    outcome: assessment.outcome,
+    baselineVersion: assessment.baselineVersion,
+    candidateVersion: assessment.candidateVersion,
+    improvement: assessment.improvement
+  });
+
+  if (assessment.outcome === "promoted") {
+    const promoted = {
+      ...assessment.candidate,
+      createdAt: assessment.candidate.createdAt || now.toISOString()
+    };
+    writeJson(strategyPath, promoted);
+    evolution.currentStrategyVersion = promoted.version;
+    evolution.runsSincePromotion = 0;
+    evolution.consecutiveFailures = 0;
+    evolution.pendingExperiment = null;
+  } else if (assessment.outcome === "pending-review") {
+    evolution.pendingExperiment = experiment.experimentId;
+  } else if (evolution.pendingExperiment === experiment.experimentId) {
+    evolution.pendingExperiment = null;
+  }
+
+  const nextState = { ...state, evolution };
+  const stateResult = validateData("state", nextState, "updated state");
+  if (!stateResult.ok) {
+    throw new Error(`Refusing to write invalid state: ${stateResult.errors.join("; ")}`);
+  }
+
+  writeJson(experimentFile, experiment);
+  writeJson(statePath, nextState);
+  return { experimentFile, strategyPath, statePath, assessment, state: nextState };
 }
 
 function mergeItems(existing, runLog) {

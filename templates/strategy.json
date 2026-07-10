@@ -1,0 +1,9 @@
+{
+  "apiVersion": "loop-engineering/v1",
+  "loop": "example-loop",
+  "version": 1,
+  "instructions": "Use the smallest safe change, inspect deterministic evidence first, and preserve existing behavior outside the current work item.",
+  "hypothesis": "Initial task strategy from loop.yaml",
+  "parentVersion": null,
+  "createdAt": null
+}

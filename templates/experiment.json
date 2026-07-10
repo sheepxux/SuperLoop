@@ -1,0 +1,32 @@
+{
+  "apiVersion": "loop-engineering/v1",
+  "loop": "example-loop",
+  "experimentId": "strategy-v2-benchmark",
+  "metric": "verified-pass-rate",
+  "baseline": {
+    "version": 1,
+    "score": 0.7,
+    "samples": 10
+  },
+  "candidate": {
+    "strategy": {
+      "apiVersion": "loop-engineering/v1",
+      "loop": "example-loop",
+      "version": 2,
+      "instructions": "Reproduce the failure first, change one cause at a time, and run the narrowest deterministic check before the full suite.",
+      "hypothesis": "Reproduction-first work reduces speculative fixes and increases verified pass rate.",
+      "parentVersion": 1,
+      "createdAt": null
+    },
+    "score": 0.85,
+    "samples": 10
+  },
+  "evidence": [
+    {
+      "command": "npm test",
+      "exitCode": 0,
+      "summary": "The same benchmark set passed under both strategies; candidate outcomes were scored independently."
+    }
+  ],
+  "recommendation": "promote"
+}

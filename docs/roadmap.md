@@ -1,6 +1,6 @@
 # Roadmap
 
-## v0.1.x (current)
+## v0.3.x (current)
 
 - Portable `loop.yaml` protocol.
 - Validator with safety checks.
@@ -9,16 +9,22 @@
 - Protocol artifact validation (`loopctl check`).
 - Operational executor skills from a single content source, with drift checked by doctor.
 - Practical examples.
+- Versioned task strategies stored outside the immutable loop contract.
+- Metric-triggered strategy experiments with matched baseline/candidate samples.
+- Independent benchmark evidence and threshold-gated promotion (`loopctl evolve`).
+- Human-reviewed promotion by default; automatic promotion only for explicitly low-risk loops.
+- Local `loopd` scheduler with one-shot and continuous polling modes.
+- Atomic leases, expired-run recovery, command timeout, durable run directories, and event logs.
+- Dry-run plus explicit opt-in command executor.
+- Status, run listing, pause, and resume controls.
 
-## Runner (planned next)
+## Runner extensions (planned next)
 
-- `loopd` long-running runner.
-- Due-loop scanner for `.loop-engineering/loops`.
-- Lease files to prevent duplicate runs.
-- Event stream on top of recorded run logs.
-- Runtime (not advisory) budget, retry, and human-gate enforcement.
-- Worker rebuild with state inheritance: when a worker drifts, start a fresh one from persisted state instead of accumulating context.
-- Adapter fixtures and golden-file tests.
+- Provider-native Codex, Claude Code, and OpenClaw executors.
+- Cron-expression and timezone-aware scheduling.
+- First-class human gate files and approval commands.
+- Runtime permission sandboxing beyond the current explicit command opt-in.
+- Worker rebuild with state inheritance when a worker drifts.
 
 ## Later
 

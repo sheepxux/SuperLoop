@@ -34,6 +34,22 @@ test("high-risk permission requires human-only gate", () => {
   assert.match(result.errors.join("\n"), /high-risk permission "merge"/);
 });
 
+test("automatic strategy promotion is rejected for non-low-risk loops", () => {
+  const spec = readData("examples/self-improving-development/loop.yaml");
+  spec.evolution.promotion.mode = "automatic";
+  const result = validateLoopSpec(spec, "unsafe-evolution");
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /automatic strategy promotion.*low-risk/);
+});
+
+test("strategy evaluator must be independent from task agents", () => {
+  const spec = readData("examples/self-improving-development/loop.yaml");
+  spec.evolution.evaluator.name = spec.verification.evaluator;
+  const result = validateLoopSpec(spec, "coupled-evolution");
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /evolution\.evaluator\.name must be independent/);
+});
+
 test("init creates durable loop state", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-init-"));
   await main(["init", "ci-triage", "--from", "examples/ci-triage/loop.yaml", "--out", tmp]);

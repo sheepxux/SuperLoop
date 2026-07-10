@@ -1,0 +1,123 @@
+apiVersion: loop-engineering/v1
+kind: Loop
+metadata:
+  name: self-improving-development
+  owner: engineering
+  description: "Develop bounded features while experimentally improving the worker's task strategy."
+  risk: medium
+  tags:
+    - development
+    - strategy-evolution
+goal:
+  objective: "Deliver small verified improvements to a codebase while using matched benchmarks to evolve the task strategy across runs."
+  acceptanceCriteria:
+    - "Every code change is tied to one bounded work item and independently verified."
+    - "Strategy candidates change only task instructions and are compared with the active strategy on the same benchmark items."
+    - "Only candidates that exceed the configured improvement threshold may be promoted."
+  stopConditions:
+    - "No eligible development item remains."
+    - "The task or evolution budget is exhausted."
+  blockedConditions:
+    - "The evaluator cannot produce comparable evidence for baseline and candidate strategies."
+    - "A candidate would need to weaken safety, permissions, or verification to appear better."
+discovery:
+  sources:
+    - type: manual
+      description: "Bounded feature requests and defects recorded in the loop inbox."
+  ranking:
+    strategy: "Prefer small, high-signal items with deterministic acceptance checks."
+    deterministicFirst: true
+  maxItemsPerRun: 2
+handoff:
+  worker: development-worker
+  isolation: worktree
+  worktree:
+    enabled: true
+    branchPrefix: loop-engineering/self-improving-development
+  permissions:
+    - read-repo
+    - write-worktree
+    - run-tests
+  prompt: "Implement one bounded development item using the active strategy file. Do not change the loop contract or evaluate your own output."
+verification:
+  evaluator: development-evaluator
+  independent: true
+  defaultStance: assume-broken
+  requiredEvidence:
+    - tests
+    - diff-review
+  commands:
+    - "npm test"
+  verdicts:
+    - pass
+    - fail
+    - blocked
+    - needs-human
+persistence:
+  statePath: ".loop-engineering/loops/self-improving-development/state.json"
+  runLogDir: ".loop-engineering/loops/self-improving-development/runs"
+  inboxPath: ".loop-engineering/loops/self-improving-development/inbox.md"
+  decisionsPath: ".loop-engineering/loops/self-improving-development/decisions.md"
+  strategyPath: ".loop-engineering/loops/self-improving-development/strategy.json"
+  experimentDir: ".loop-engineering/loops/self-improving-development/experiments"
+schedule:
+  runtime: manual
+  cadence: "manual"
+  timezone: "UTC"
+  timeoutMinutes: 45
+  concurrency:
+    group: self-improving-development
+    cancelInProgress: false
+runner:
+  executor: dry-run
+  workingDirectory: "."
+  pollSeconds: 30
+safety:
+  budgets:
+    maxItemsPerRun: 2
+    maxDailyRuns: 4
+    maxRuntimeMinutes: 45
+    maxEstimatedUsdPerRun: 10
+  retries:
+    maxRetriesPerItem: 2
+    onRepeatedFailure: move-to-inbox
+  humanGates:
+    autoAllowed:
+      - "read repository"
+      - "write isolated worktree"
+      - "run tests"
+    needsReview:
+      - "promote task strategy"
+    humanOnly:
+      - "merge pull request"
+      - "deploy production"
+      - "delete data"
+      - "spend money"
+      - "change permissions"
+  failurePolicy:
+    onBudgetExceeded: stop-run
+    onUnsafeAction: block
+evolution:
+  enabled: true
+  target: task-strategy
+  initialStrategy: "Reproduce the issue, inspect deterministic evidence, implement the smallest safe change, and preserve behavior outside the bounded item."
+  trigger:
+    afterRuns: 3
+    consecutiveFailures: 2
+  metric:
+    name: verified-pass-rate
+    direction: maximize
+    minimumSamples: 3
+    minimumImprovement: 0.1
+  evaluator:
+    name: strategy-benchmark-evaluator
+    independent: true
+    commands:
+      - "npm test"
+  promotion:
+    mode: human-review
+outputs:
+  - run-summary
+  - inbox-update
+  - patch
+  - report

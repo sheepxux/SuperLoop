@@ -4,7 +4,7 @@ Adapters are intentionally thin. They translate `loop.yaml` into files a specifi
 
 All executor skill content comes from one source, `src/skill-content.js`. The static files under `adapters/` are the generic (spec-less) versions of the same playbook, regenerated with `npm run build:adapters` and checked by `loopctl doctor`. Rendered files inline values from the spec for convenience, but always declare `loop.yaml` as the winner on conflict — re-render after editing a spec.
 
-## Adapters Supported in v0.1.x
+## Adapters Supported in v0.3.x
 
 - `codex`: renders a Codex-compatible `SKILL.md` (executor playbook), loop spec, worker prompt, and evaluator prompt.
 - `claude-code`: renders `.claude/skills/<loop>/SKILL.md` plus worker/evaluator subagent prompts under `.claude/agents/`.
@@ -15,7 +15,7 @@ All executor skill content comes from one source, `src/skill-content.js`. The st
 
 ## Executor vs Advisor
 
-Executor adapters (codex, claude-code, openclaw, generic-harness) receive the full operational playbook: preflight with `loopctl validate` + `loopctl next`, bounded discovery with concrete commands, worktree handoff, independent evaluation checked by `loopctl check evaluator`, and persistence through `loopctl record`. Advisor adapters (chatgpt) receive the review-side contract only.
+Executor adapters (codex, claude-code, openclaw, generic-harness) receive the full operational playbook: preflight with `loopctl validate` + `loopctl next`, bounded discovery with concrete commands, worktree handoff, independent evaluation checked by `loopctl check evaluator`, and persistence through `loopctl record` or the Runner-owned `LOOP_RUN_LOG` path. Advisor adapters (chatgpt) receive the review-side contract only.
 
 ## Adapter Rule
 

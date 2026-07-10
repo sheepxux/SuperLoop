@@ -2,6 +2,8 @@
   "apiVersion": "loop-engineering/v1",
   "loop": "example-loop",
   "lastRunAt": null,
+  "paused": false,
+  "pauseReason": null,
   "items": [],
   "budgets": {
     "runsToday": 0,

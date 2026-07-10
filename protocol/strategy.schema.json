@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v0.3.0/protocol/strategy.schema.json",
+  "title": "Loop Strategy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "loop", "version", "instructions", "parentVersion", "createdAt"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "loop-engineering/v1"
+    },
+    "loop": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 10
+    },
+    "hypothesis": {
+      "type": "string"
+    },
+    "parentVersion": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "createdAt": {
+      "type": ["string", "null"]
+    }
+  }
+}

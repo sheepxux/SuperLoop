@@ -2,8 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { copyFile, readData, readText, repoRoot, schemaPath, writeJson, writeText, writeYaml } from "./fs-utils.js";
 import { runDoctor } from "./doctor.js";
-import { nextRun, recordRun, resolveLoop } from "./loop-state.js";
+import { initialEvolutionState, initialStrategy } from "./evolution.js";
+import { nextRun, recordExperiment, recordRun, resolveLoop } from "./loop-state.js";
 import { renderAdapter, RENDERERS } from "./renderers.js";
+import { listRuns, setPaused, statusLoops } from "./runner.js";
 import { validateData, validateLoopFile, validateLoopSpec } from "./validation.js";
 
 export async function main(argv) {
@@ -31,6 +33,21 @@ export async function main(argv) {
   }
   if (command === "record") {
     return recordCommand(rest);
+  }
+  if (command === "evolve") {
+    return evolveCommand(rest);
+  }
+  if (command === "status") {
+    return statusCommand(rest);
+  }
+  if (command === "runs") {
+    return runsCommand(rest);
+  }
+  if (command === "pause") {
+    return pauseCommand(rest);
+  }
+  if (command === "resume") {
+    return resumeCommand(rest);
   }
   if (command === "check") {
     return checkCommand(rest);
@@ -75,6 +92,10 @@ function initCommand(args) {
   spec.persistence.runLogDir = path.join(outRoot, name, "runs");
   spec.persistence.inboxPath = path.join(outRoot, name, "inbox.md");
   spec.persistence.decisionsPath = path.join(outRoot, name, "decisions.md");
+  if (spec.evolution?.enabled) {
+    spec.persistence.strategyPath = path.join(outRoot, name, "strategy.json");
+    spec.persistence.experimentDir = path.join(outRoot, name, "experiments");
+  }
   spec.schedule.concurrency.group = name;
   if (spec.handoff?.worktree?.branchPrefix) {
     spec.handoff.worktree.branchPrefix = normalizeBranchPrefix(spec.handoff.worktree.branchPrefix, name);
@@ -92,18 +113,28 @@ function initCommand(args) {
   }
 
   fs.mkdirSync(path.join(loopDir, "runs"), { recursive: true });
+  if (spec.evolution?.enabled) {
+    fs.mkdirSync(path.join(loopDir, "experiments"), { recursive: true });
+  }
   writeYaml(path.join(loopDir, "loop.yaml"), spec);
-  writeJson(path.join(loopDir, "state.json"), {
+  const state = {
     apiVersion: "loop-engineering/v1",
     loop: name,
     lastRunAt: null,
+    paused: false,
+    pauseReason: null,
     items: [],
     budgets: {
       runsToday: 0,
       runtimeMinutesToday: 0,
       estimatedUsdToday: 0
     }
-  });
+  };
+  if (spec.evolution?.enabled) {
+    state.evolution = initialEvolutionState();
+    writeJson(path.join(loopDir, "strategy.json"), initialStrategy(spec, name));
+  }
+  writeJson(path.join(loopDir, "state.json"), state);
   writeText(path.join(loopDir, "inbox.md"), `# ${name} Inbox\n\nBlocked or human-review items land here.\n`);
   writeText(path.join(loopDir, "decisions.md"), `# ${name} Decisions\n\nRecord durable human decisions here.\n`);
 
@@ -180,11 +211,94 @@ function recordCommand(args) {
   }
 }
 
+function evolveCommand(args) {
+  const target = args[0];
+  const options = parseOptions(args.slice(1));
+  if (!target || !options.experiment || options.experiment === true) {
+    throw new Error("Usage: loopctl evolve <loop-dir|loop.yaml> --experiment <experiment.json> [--approve] [--force]");
+  }
+
+  const loop = resolveLoop(target);
+  const experiment = readData(options.experiment);
+  const outcome = recordExperiment(loop, experiment, {
+    approve: options.approve === true,
+    force: options.force === true
+  });
+
+  console.log(`Experiment ${outcome.assessment.outcome}: ${outcome.experimentFile}`);
+  console.log(`Measured improvement: ${outcome.assessment.improvement}`);
+  if (outcome.assessment.outcome === "promoted") {
+    console.log(`Promoted strategy v${outcome.assessment.candidateVersion}: ${outcome.strategyPath}`);
+  } else if (outcome.assessment.outcome === "pending-review") {
+    console.log("Candidate passed the metric gate and is waiting for human approval. Re-run with --approve.");
+  } else {
+    console.log("Candidate was not promoted; the current strategy remains active.");
+  }
+}
+
+function statusCommand(args) {
+  const options = parseOptions(args);
+  const statuses = statusLoops({ root: options.root || ".loop-engineering/loops" });
+  if (options.json === true) {
+    console.log(JSON.stringify(statuses, null, 2));
+    return;
+  }
+  if (statuses.length === 0) {
+    console.log("No loops found.");
+    return;
+  }
+  for (const status of statuses) {
+    if (status.error) {
+      console.log(`${status.loop}\terror\t${status.error}`);
+      continue;
+    }
+    const state = status.paused ? "paused" : !status.preflightOk ? "blocked" : status.due ? "ready" : "idle";
+    console.log(
+      `${status.loop}\t${state}\tdue=${status.due}\truns-left=${status.runsRemainingToday}\tretries=${status.retryItems}\thuman=${status.needsHuman}\trunner=${status.runner || "none"}`
+    );
+  }
+}
+
+function runsCommand(args) {
+  const target = args[0];
+  if (!target) {
+    throw new Error("Usage: loopctl runs <loop-dir|loop.yaml> [--json]");
+  }
+  const options = parseOptions(args.slice(1));
+  const runs = listRuns(target);
+  if (options.json === true) {
+    console.log(JSON.stringify(runs, null, 2));
+    return;
+  }
+  for (const run of runs) {
+    console.log(`${run.runId}\t${run.status}\t${run.finishedAt || "-"}\t${run.file}`);
+  }
+}
+
+function pauseCommand(args) {
+  const target = args[0];
+  if (!target) {
+    throw new Error("Usage: loopctl pause <loop-dir|loop.yaml> [--reason <text>]");
+  }
+  const options = parseOptions(args.slice(1));
+  const outcome = setPaused(target, true, typeof options.reason === "string" ? options.reason : null);
+  console.log(`Paused ${outcome.loop}: ${outcome.pauseReason}`);
+}
+
+function resumeCommand(args) {
+  const target = args[0];
+  if (!target) {
+    throw new Error("Usage: loopctl resume <loop-dir|loop.yaml>");
+  }
+  const outcome = setPaused(target, false);
+  console.log(`Resumed ${outcome.loop}`);
+}
+
 function checkCommand(args) {
   const schemaName = args[0];
   const files = args.slice(1);
   if (!schemaName || files.length === 0) {
-    throw new Error("Usage: loopctl check <loop|state|evaluator|run-log> <file...>");
+    throw new Error("Usage: loopctl check <loop|state|evaluator|run-log|strategy|experiment> <file...>");
   }
 
   let failed = false;
@@ -258,8 +372,14 @@ Commands:
   render <adapter> <loop.yaml> --out D    Render agent/runtime adapter files
   next <loop-dir|loop.yaml>               Print the next-run plan as JSON (budgets, retries, carryover)
   record <loop-dir> --run <run-log.json>  Validate a run log, file it under runs/, update state.json
+  evolve <loop-dir> --experiment <file>   Compare a candidate strategy with baseline and promote if gated
+  status [--root D] [--json]              Show loop health, budget, cadence, and runner state
+  runs <loop-dir> [--json]                List recorded runs
+  pause <loop-dir> [--reason TEXT]         Pause scheduling for a loop
+  resume <loop-dir>                        Resume scheduling for a loop
   check <schema> <file...>                Validate data files against a protocol schema
-  schema <loop|state|evaluator|run-log>   Print or copy a protocol schema
+  schema <loop|state|evaluator|run-log|strategy|experiment>
+                                           Print or copy a protocol schema
   doctor                                  Check whether the repo is publish-ready
 
 Adapters:

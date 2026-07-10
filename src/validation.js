@@ -21,6 +21,9 @@ export function validateLoopFile(filePath) {
 
 export function validateData(schemaName, data, label = schemaName) {
   const ajv = new Ajv2020({ allErrors: true });
+  if (schemaName === "experiment") {
+    ajv.addSchema(JSON.parse(readText(schemaPath("strategy"))));
+  }
   const validate = ajv.compile(JSON.parse(readText(schemaPath(schemaName))));
   const valid = validate(data);
   const errors = valid
@@ -109,6 +112,14 @@ function customChecks(spec, errors, warnings) {
     errors.push("scheduled runtimes must define a non-manual cadence.");
   }
 
+  if (spec.runner?.executor === "command" && !spec.runner.command) {
+    errors.push("runner.command is required when runner.executor is command.");
+  }
+
+  if (spec.runner?.executor === "dry-run" && spec.runner.command) {
+    warnings.push("runner.command is ignored when runner.executor is dry-run.");
+  }
+
   if (!spec.persistence.statePath.includes(name)) {
     warnings.push(`persistence.statePath should include the loop name "${name}" for auditability.`);
   }
@@ -144,6 +155,22 @@ function customChecks(spec, errors, warnings) {
     spec.verification.commands.length === 0
   ) {
     errors.push("verification.commands must include at least one command for executable evidence.");
+  }
+
+  if (spec.evolution?.enabled) {
+    if (!spec.persistence.strategyPath || !spec.persistence.experimentDir) {
+      errors.push("evolution.enabled requires persistence.strategyPath and persistence.experimentDir.");
+    }
+    const evolutionEvaluator = normalize(spec.evolution.evaluator.name);
+    if (evolutionEvaluator === worker || evolutionEvaluator === evaluator) {
+      errors.push("evolution.evaluator.name must be independent from both the worker and task evaluator.");
+    }
+    if (spec.evolution.evaluator.independent !== true) {
+      errors.push("evolution.evaluator.independent must be true.");
+    }
+    if (spec.evolution.promotion.mode === "automatic" && spec.metadata.risk !== "low") {
+      errors.push("automatic strategy promotion is allowed only for low-risk loops.");
+    }
   }
 }
 
