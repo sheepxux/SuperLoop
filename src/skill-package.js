@@ -22,8 +22,12 @@ export function validateSkillPackage(skillDir = CANONICAL_SKILL_DIR) {
   const metadata = parsed?.metadata || {};
   const folderName = path.basename(root);
 
-  if (Object.keys(metadata).some((key) => key !== "name" && key !== "description")) {
-    errors.push("SKILL.md frontmatter must contain only name and description for portable discovery.");
+  const extraMetadataKeys = Object.keys(metadata).filter((key) => key !== "name" && key !== "description");
+  const installedByGitHub = extraMetadataKeys.length === 1
+    && extraMetadataKeys[0] === "metadata"
+    && validGitHubInstallMetadata(metadata.metadata);
+  if (extraMetadataKeys.length > 0 && !installedByGitHub) {
+    errors.push("SKILL.md frontmatter must contain only name and description, except GitHub CLI source-tracking metadata on installed copies.");
   }
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.name || "")) {
     errors.push("Skill name must use lowercase letters, digits, and single hyphens only.");
@@ -114,6 +118,13 @@ export function installCanonicalSkill({
   }
 
   return { platform, scope, source: CANONICAL_SKILL_DIR, destination, validation: installed };
+}
+
+function validGitHubInstallMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const required = ["github-path", "github-ref", "github-repo", "github-tree-sha"];
+  return Object.keys(value).every((key) => required.includes(key))
+    && required.every((key) => typeof value[key] === "string" && value[key].length > 0);
 }
 
 function defaultInstallParent(platform, scope, { cwd, home, codexHome }) {

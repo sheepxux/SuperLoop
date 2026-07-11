@@ -25,8 +25,8 @@ if (!installed.error) {
 }
 
 console.error("Loop-Engineering runtime not found.");
-console.error("Run this script from the Loop-Engineering repository, or use the pinned GitHub v1.0.0 package.");
-console.error("npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.0 -- loopctl <command>");
+console.error("Run this script from the Loop-Engineering repository, or use the pinned GitHub v1.0.1 package.");
+console.error("npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.1 -- loopctl <command>");
 console.error("Source: https://github.com/sheepxux/Loop-Engineering");
 process.exit(127);
 

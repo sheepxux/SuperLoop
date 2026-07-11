@@ -1,6 +1,6 @@
 {
   "name": "@sheepxux/loop-engineering",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Portable agent-loop protocol, strategy evolution, and local durable runner for AI coding agents.",
   "type": "module",
   "main": "./src/cli.js",

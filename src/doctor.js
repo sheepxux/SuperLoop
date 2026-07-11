@@ -152,6 +152,11 @@ function checkDistributionVersions(checks) {
   ]) {
     checks.push({ ok: version === pkg.version, message: `${name} version matches package version ${pkg.version}` });
   }
+  const claudeEntry = marketplace.plugins?.find((entry) => entry.name === claude.name);
+  checks.push({
+    ok: claudeEntry?.strict === true,
+    message: "Claude marketplace uses strict manifest loading to avoid duplicate component declarations"
+  });
   for (const schema of ["loop", "state", "evaluator", "run-log", "strategy", "experiment", "approval"]) {
     const data = JSON.parse(readText(schemaPath(schema)));
     checks.push({

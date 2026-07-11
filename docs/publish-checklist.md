@@ -6,7 +6,7 @@
 - Official Skill quick validation and `gh skill publish --dry-run` pass.
 - `agents/openai.yaml` matches the Skill and its default prompt names `$loop-engineering`.
 - Codex and Claude plugin manifests validate and report the same semver as `package.json`.
-- Codex/Claude installation into clean temporary homes succeeds.
+- Codex/Claude installation into clean temporary homes succeeds, and each platform's plugin list reports the plugin enabled rather than merely installed.
 - Trigger, hard-negative, safety, and degradation evals pass in fresh sessions.
 
 ## Runtime and protocol
@@ -24,12 +24,12 @@
 - `npm pack --dry-run` contains canonical Skill, evals, assets, schemas, binaries, and both plugin manifests.
 - Install the generated tarball in an empty directory and run `loopctl --help`, `loopctl doctor`, Skill install, initialization, validation, and one dry-run.
 - `npm publish --dry-run` passes.
-- `@sheepxux/loop-engineering@1.0.0` is visible before documenting npm as available.
+- `@sheepxux/loop-engineering@1.0.1` is visible before documenting npm as available.
 
 ## Version and GitHub
 
-- `package.json`, lockfile, Codex plugin, Claude plugin, marketplace metadata, README files, and schema `$id` URLs all say `1.0.0`.
-- Create annotated tag `v1.0.0` only from the tested `main` commit.
+- `package.json`, lockfile, Codex plugin, Claude plugin, marketplace metadata, README files, and schema `$id` URLs all say `1.0.1`.
+- Create annotated tag `v1.0.1` only from the tested `main` commit.
 - Every raw schema URL under the tag returns 200.
 - Create a GitHub Release with accurate capabilities, boundaries, upgrade notes, and install commands.
 - CI for the tag and `main` passes.

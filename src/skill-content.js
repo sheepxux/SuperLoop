@@ -38,7 +38,7 @@ Run exactly one bounded iteration of this loop. \`loop.yaml\` is the contract; t
 
 ${PLATFORM_NOTES.get(platform)}
 
-If \`loopctl\` is not on PATH, use the repository-local \`node ./bin/loopctl.js\` or the pinned GitHub release package: \`npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.0 -- loopctl\`. Do not run a floating package version.
+If \`loopctl\` is not on PATH, use the repository-local \`node ./bin/loopctl.js\` or the pinned GitHub release package: \`npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.1 -- loopctl\`. Do not run a floating package version.
 ${spec ? "" : `
 ## 0. Locate or create the loop
 

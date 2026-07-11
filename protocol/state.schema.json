@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.0/protocol/state.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.1/protocol/state.schema.json",
   "title": "Loop State",
   "type": "object",
   "additionalProperties": false,

@@ -20,9 +20,9 @@ suitability → goal → discovery → isolated handoff → independent verifica
 
 Its primary product is the complete Skill under `skills/loop-engineering`. `loopctl`, `loopd`, protocol schemas, and platform plugins are the deterministic execution foundation for that Skill.
 
-## Current Version: v1.0.0
+## Current Version: v1.0.1
 
-`v1.0.0` is the first complete Skill-first release. It provides one canonical Skill shared by Codex and Claude Code, progressively loaded references, self-contained templates, a real behavior-evaluation suite, dual-platform plugin manifests, an evidence-bound local Runner, and controlled task-strategy evolution.
+`v1.0.1` is the current patch release of the complete Skill-first v1. It provides one canonical Skill shared by Codex and Claude Code, progressively loaded references, self-contained templates, a real behavior-evaluation suite, dual-platform plugin manifests, an evidence-bound local Runner, and controlled task-strategy evolution; it also fixes strict-manifest loading compatibility for the Claude Code marketplace.
 
 “Evolution” means benchmark-gated task-strategy optimization. It does not modify model weights and cannot weaken the safety contract.
 
@@ -37,7 +37,7 @@ The Skill first classifies a request:
 
 For suitable work, it routes among seven modes: assess, design, scaffold, run, review, recover, and evolve.
 
-## Complete v1.0.0 Capabilities
+## Complete v1.0 Capabilities
 
 - Standard Agent Skills layout: `SKILL.md`, `agents/openai.yaml`, `references/`, `scripts/`, `assets/`, and `evals/`.
 - One canonical Skill for Codex and Claude Code, avoiding duplicated instruction sources.
@@ -60,14 +60,14 @@ For suitable work, it routes among seven modes: assess, design, scaffold, run, r
 ### GitHub Skill (recommended; GitHub CLI currently marks this capability as preview)
 
 ```bash
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.0.0 --agent codex
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.0.0 --agent claude-code
+gh skill install sheepxux/Loop-Engineering loop-engineering@v1.0.1 --agent codex
+gh skill install sheepxux/Loop-Engineering loop-engineering@v1.0.1 --agent claude-code
 ```
 
 ### Codex plugin
 
 ```text
-codex plugin marketplace add sheepxux/Loop-Engineering --ref v1.0.0
+codex plugin marketplace add sheepxux/Loop-Engineering --ref v1.0.1
 codex plugin add loop-engineering@loop-engineering
 ```
 
@@ -81,7 +81,7 @@ claude plugin install loop-engineering@loop-engineering
 ### Install and validate from source
 
 ```bash
-git clone --branch v1.0.0 https://github.com/sheepxux/Loop-Engineering.git
+git clone --branch v1.0.1 https://github.com/sheepxux/Loop-Engineering.git
 cd Loop-Engineering
 npm ci
 node ./bin/loopctl.js skill validate
@@ -93,7 +93,7 @@ node ./bin/loopctl.js skill install both --scope project
 After the publisher completes the optional npm registry release, you can also use:
 
 ```bash
-npm install --global @sheepxux/loop-engineering@1.0.0
+npm install --global @sheepxux/loop-engineering@1.0.1
 loopctl skill install both --scope user
 ```
 
