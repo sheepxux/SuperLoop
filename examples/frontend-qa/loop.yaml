@@ -91,9 +91,10 @@ safety:
       - "run-tests"
       - "capture-screenshots"
     needsReview:
+      - "review-local-draft"
+    humanOnly:
       - "open-pull-request"
       - "comment-on-issue"
-    humanOnly:
       - "merge-pull-request"
       - "approve-product-design-decision"
       - "deploy-production"

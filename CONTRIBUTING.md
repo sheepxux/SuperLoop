@@ -5,8 +5,9 @@ Loop-Engineering is built around one rule: portable loop specs should be safer a
 ## Development
 
 ```bash
-npm install
+npm ci
 npm run smoke
+npm run package:smoke
 ```
 
 Before opening a pull request:
@@ -14,6 +15,8 @@ Before opening a pull request:
 - Add or update an example when changing protocol behavior.
 - Add tests for validator or renderer changes.
 - Run `npm run smoke`.
+- Run `npm run package:smoke` when packaging, plugin helpers, binaries, or dependencies change.
+- Update fresh-session eval evidence when Skill routing or safety behavior changes.
 - Keep adapters thin; protocol semantics belong in `protocol/` and `src/validation.js`.
 
 ## Design Rules

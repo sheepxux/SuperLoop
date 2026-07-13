@@ -21,18 +21,31 @@ export async function daemonMain(argv) {
   }
 
   let stopping = false;
+  let onceHadError = false;
   const stop = () => { stopping = true; };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
 
-  do {
-    const outcomes = runTick({ root, loopName, allowCommand, forceManual: once && Boolean(loopName) });
-    for (const outcome of outcomes) {
-      console.log(JSON.stringify(outcome));
-    }
-    if (once || stopping) break;
-    await delay(pollSeconds * 1000);
-  } while (!stopping);
+  try {
+    do {
+      const outcomes = runTick({ root, loopName, allowCommand, forceManual: once && Boolean(loopName) });
+      for (const outcome of outcomes) {
+        console.log(JSON.stringify(outcome));
+      }
+      if (once && outcomes.some((outcome) => outcome.status === "error")) {
+        onceHadError = true;
+      }
+      if (once || stopping) break;
+      await delay(pollSeconds * 1000);
+    } while (!stopping);
+  } finally {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  }
+
+  if (onceHadError) {
+    process.exitCode = 1;
+  }
 }
 
 function parseOptions(args) {

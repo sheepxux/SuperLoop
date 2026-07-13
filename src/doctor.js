@@ -13,6 +13,7 @@ const REQUIRED_FILES = [
   "CONTRIBUTING.md",
   "SECURITY.md",
   "CODE_OF_CONDUCT.md",
+  "CHANGELOG.md",
   ".github/workflows/ci.yml",
   ".github/ISSUE_TEMPLATE/bug_report.md",
   ".github/ISSUE_TEMPLATE/feature_request.md",
@@ -34,11 +35,13 @@ const REQUIRED_FILES = [
   "protocol/strategy.schema.json",
   "protocol/experiment.schema.json",
   "protocol/approval.schema.json",
+  "protocol/decision.schema.json",
   "templates/loop.yaml",
   "templates/state.json",
   "templates/strategy.json",
   "templates/experiment.json",
   "templates/approval.json",
+  "templates/decision.json",
   "skills/loop-engineering/SKILL.md",
   "skills/loop-engineering/agents/openai.yaml",
   "skills/loop-engineering/references/suitability-and-patterns.md",
@@ -50,7 +53,12 @@ const REQUIRED_FILES = [
   "skills/loop-engineering/references/troubleshooting.md",
   "skills/loop-engineering/scripts/run-loopctl.mjs",
   "skills/loop-engineering/assets/loop.yaml",
+  "skills/loop-engineering/assets/decision.json",
+  "skills/loop-engineering/assets/icon-small.png",
+  "skills/loop-engineering/assets/icon-large.png",
   "skills/loop-engineering/evals/evals.json",
+  "skills/loop-engineering/evals/results-v1.0.2.json",
+  "scripts/package-smoke.js",
   "adapters/chatgpt/SKILL.md",
   "adapters/openclaw/loop-instructions.md",
   "adapters/generic-harness/loop-instructions.md",
@@ -73,8 +81,9 @@ const TEMPLATE_DATA_FILES = [
   ["evaluator", "templates/evaluator-result.json"],
   ["run-log", "templates/run-log.json"],
   ["strategy", "templates/strategy.json"],
-  ["experiment", "templates/experiment.json"]
-  , ["approval", "templates/approval.json"]
+  ["experiment", "templates/experiment.json"],
+  ["approval", "templates/approval.json"],
+  ["decision", "templates/decision.json"]
 ];
 
 export function runDoctor() {
@@ -137,6 +146,7 @@ function checkPackageMetadata(checks) {
   checks.push({ ok: Array.isArray(pkg.files) && pkg.files.includes(".codex-plugin/"), message: "npm files include Codex plugin manifest" });
   checks.push({ ok: Array.isArray(pkg.files) && pkg.files.includes(".claude-plugin/"), message: "npm files include Claude plugin manifest" });
   checks.push({ ok: Array.isArray(pkg.files) && pkg.files.includes("README.en.md"), message: "npm files include English README" });
+  checks.push({ ok: Array.isArray(pkg.files) && pkg.files.includes("CHANGELOG.md"), message: "npm files include changelog" });
   checks.push({ ok: Boolean(pkg.repository?.url), message: "package repository URL is set" });
 }
 
@@ -145,6 +155,7 @@ function checkDistributionVersions(checks) {
   const codex = readData(path.join(repoRoot, ".codex-plugin", "plugin.json"));
   const claude = readData(path.join(repoRoot, ".claude-plugin", "plugin.json"));
   const marketplace = readData(path.join(repoRoot, ".claude-plugin", "marketplace.json"));
+  const evalResults = readData(path.join(repoRoot, "skills", "loop-engineering", "evals", `results-v${pkg.version}.json`));
   for (const [name, version] of [
     ["Codex plugin", codex.version],
     ["Claude plugin", claude.version],
@@ -152,12 +163,21 @@ function checkDistributionVersions(checks) {
   ]) {
     checks.push({ ok: version === pkg.version, message: `${name} version matches package version ${pkg.version}` });
   }
+  checks.push({
+    ok: evalResults.version === pkg.version && evalResults.skill_name === "loop-engineering",
+    message: `fresh-session eval evidence matches package version ${pkg.version}`
+  });
+  const helper = readText(path.join(repoRoot, "skills", "loop-engineering", "scripts", "run-loopctl.mjs"));
+  checks.push({
+    ok: helper.includes(`Loop-Engineering#v${pkg.version}`),
+    message: `Skill runtime helper pins GitHub runtime v${pkg.version}`
+  });
   const claudeEntry = marketplace.plugins?.find((entry) => entry.name === claude.name);
   checks.push({
     ok: claudeEntry?.strict === true,
     message: "Claude marketplace uses strict manifest loading to avoid duplicate component declarations"
   });
-  for (const schema of ["loop", "state", "evaluator", "run-log", "strategy", "experiment", "approval"]) {
+  for (const schema of ["loop", "state", "evaluator", "run-log", "strategy", "experiment", "approval", "decision"]) {
     const data = JSON.parse(readText(schemaPath(schema)));
     checks.push({
       ok: typeof data.$id === "string" && data.$id.includes(`/v${pkg.version}/`),
@@ -180,7 +200,7 @@ function checkCanonicalSkill(checks) {
 }
 
 function checkSchemasParse(checks) {
-  for (const schema of ["loop", "state", "evaluator", "run-log", "strategy", "experiment", "approval"]) {
+  for (const schema of ["loop", "state", "evaluator", "run-log", "strategy", "experiment", "approval", "decision"]) {
     try {
       JSON.parse(readText(schemaPath(schema)));
       checks.push({ ok: true, message: `schema parses: ${schema}` });
@@ -242,7 +262,8 @@ function checkSkillAssetsInSync(checks) {
     "run-log.json",
     "strategy.json",
     "experiment.json",
-    "approval.json"
+    "approval.json",
+    "decision.json"
   ]) {
     const skillAsset = path.join(repoRoot, "skills", "loop-engineering", "assets", name);
     const compatibilityTemplate = path.join(repoRoot, "templates", name);

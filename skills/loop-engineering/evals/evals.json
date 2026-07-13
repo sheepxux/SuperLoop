@@ -50,7 +50,7 @@
       "id": 5,
       "prompt": "审查这份 loop.yaml；它没有预算，worker 也负责验收自己的改动。",
       "expected_output": "Lead with blocking findings, require independent evaluation and finite budgets, then provide a corrected contract.",
-      "files": [],
+      "files": ["evals/fixtures/unsafe-loop.yaml"],
       "expectations": [
         "Reports self-evaluation as a release-blocking defect.",
         "Reports missing item, time, retry, and cost budgets.",

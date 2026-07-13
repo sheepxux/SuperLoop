@@ -1,6 +1,7 @@
 ---
 name: loop-engineering
 description: Design, scaffold, operate, review, recover, and empirically improve durable agent loops. Use when a user asks to automate recurring or unattended work, convert a repeated agent task into a governed workflow, work with loop.yaml or loopd, add independent verification and persistent state, diagnose a stalled loop, or improve task strategy through measured experiments. Do not use for one-shot work that direct action or a deterministic script can complete.
+license: MIT
 ---
 
 # Loop-Engineering
@@ -18,7 +19,7 @@ Classify the request before creating artifacts:
 
 Read [suitability and patterns](references/suitability-and-patterns.md) when the classification or loop shape is unclear.
 
-Then select exactly one primary mode:
+For **one-shot** and **deterministic** requests, report that routing decision and stop this Skill workflow; do not create loop artifacts or invoke `loopctl`. Only **agentic loop** and **unsafe loop** requests continue below. Then select exactly one primary mode:
 
 | Mode | Deliverable | Read |
 | --- | --- | --- |
@@ -36,7 +37,7 @@ Do not silently expand from one mode into another materially riskier mode.
 
 Prefer an installed `loopctl`. Inside the source repository, use `node ./bin/loopctl.js`. From this Skill package, [`node scripts/run-loopctl.mjs`](scripts/run-loopctl.mjs) locates either form and fails with installation guidance when neither exists.
 
-Start every repository task with:
+When a loop contract exists, start every loop repository task with:
 
 ```bash
 loopctl doctor
@@ -56,7 +57,7 @@ Never claim that a command ran unless its output or exit code was observed.
 7. Classify every external action as auto-allowed, needs-review, or human-only.
 8. Validate the completed contract mechanically before execution.
 
-Use [the starter contract](assets/loop.yaml) rather than inventing field names. Read [contract design](references/contract-design.md) for field-level decisions. The self-contained package also includes [state](assets/state.json), [evaluator result](assets/evaluator-result.json), [run log](assets/run-log.json), [strategy](assets/strategy.json), [experiment](assets/experiment.json), and [approval](assets/approval.json) templates.
+Use [the starter contract](assets/loop.yaml) rather than inventing field names. Read [contract design](references/contract-design.md) for field-level decisions. The self-contained package also includes [state](assets/state.json), [evaluator result](assets/evaluator-result.json), [run log](assets/run-log.json), [strategy](assets/strategy.json), [experiment](assets/experiment.json), [approval](assets/approval.json), and [rejection decision](assets/decision.json) templates.
 
 ## Scaffold
 
@@ -86,7 +87,7 @@ Read [execution and evaluation](references/execution-and-evaluation.md) before c
 
 Evolve only task strategy instructions. Never let a candidate change discovery bounds, permissions, budgets, verification, evidence requirements, human gates, or the loop contract.
 
-Require the same benchmark cases for baseline and candidate, mechanically recomputed scores, independent evidence, a configured minimum improvement, a retained rollback point, and human approval unless the loop is explicitly low-risk. Read [strategy evolution](references/strategy-evolution.md) and start from the [experiment template](assets/experiment.json) before creating or approving an experiment.
+Require the same benchmark cases for baseline and candidate, exact arm/strategy-digest attribution, mechanically recomputed scores, independent evidence, a configured minimum improvement, a retained rollback point, and human approval unless the loop is explicitly low-risk. A reviewer must approve or immutably reject a pending candidate; never leave it stuck. Read [strategy evolution](references/strategy-evolution.md) and start from the [experiment template](assets/experiment.json) before creating or reviewing an experiment.
 
 ## Required evidence
 

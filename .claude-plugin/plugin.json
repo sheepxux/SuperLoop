@@ -1,7 +1,7 @@
 {
   "name": "loop-engineering",
   "description": "Complete Skill for designing, operating, verifying, recovering, and empirically improving durable agent loops.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "sheepxux"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@sheepxux/loop-engineering",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Portable agent-loop protocol, strategy evolution, and local durable runner for AI coding agents.",
   "type": "module",
   "main": "./src/cli.js",
@@ -17,6 +17,7 @@
     "adapters/",
     "bin/",
     "CODE_OF_CONDUCT.md",
+    "CHANGELOG.md",
     "CONTRIBUTING.md",
     "docs/",
     "examples/",
@@ -37,6 +38,7 @@
     "build:assets": "node ./scripts/build-skill-assets.js",
     "validate:examples": "node ./bin/loopctl.js validate examples/ci-triage/loop.yaml examples/dependency-update/loop.yaml examples/frontend-qa/loop.yaml examples/self-improving-development/loop.yaml",
     "doctor": "node ./bin/loopctl.js doctor",
+    "package:smoke": "node ./scripts/package-smoke.js",
     "smoke": "npm test && npm run validate:examples && npm run doctor && node ./bin/loopctl.js skill validate && node ./bin/loopd.js --help && node ./bin/loopctl.js render codex examples/ci-triage/loop.yaml --out /tmp/loop-engineering-codex && node ./bin/loopctl.js render claude-code examples/ci-triage/loop.yaml --out /tmp/loop-engineering-claude"
   },
   "keywords": [

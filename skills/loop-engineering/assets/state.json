@@ -5,7 +5,9 @@
   "paused": false,
   "pauseReason": null,
   "items": [],
+  "recordedRuns": [],
   "budgets": {
+    "date": null,
     "runsToday": 0,
     "runtimeMinutesToday": 0,
     "estimatedUsdToday": 0

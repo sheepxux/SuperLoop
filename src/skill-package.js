@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import YAML from "yaml";
 import { repoRoot } from "./fs-utils.js";
 
 export const CANONICAL_SKILL_DIR = path.join(repoRoot, "skills", "loop-engineering");
 export const SKILL_PLATFORMS = new Set(["codex", "claude-code"]);
+const PACKAGE_VERSION = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).version;
 
 export function validateSkillPackage(skillDir = CANONICAL_SKILL_DIR) {
   const errors = [];
@@ -22,12 +24,14 @@ export function validateSkillPackage(skillDir = CANONICAL_SKILL_DIR) {
   const metadata = parsed?.metadata || {};
   const folderName = path.basename(root);
 
-  const extraMetadataKeys = Object.keys(metadata).filter((key) => key !== "name" && key !== "description");
-  const installedByGitHub = extraMetadataKeys.length === 1
+  const standardMetadataKeys = new Set(["name", "description", "license", "allowed-tools"]);
+  const extraMetadataKeys = Object.keys(metadata).filter((key) => !standardMetadataKeys.has(key));
+  const installedByGitHub = root !== path.resolve(CANONICAL_SKILL_DIR)
+    && extraMetadataKeys.length === 1
     && extraMetadataKeys[0] === "metadata"
     && validGitHubInstallMetadata(metadata.metadata);
   if (extraMetadataKeys.length > 0 && !installedByGitHub) {
-    errors.push("SKILL.md frontmatter must contain only name and description, except GitHub CLI source-tracking metadata on installed copies.");
+    errors.push("SKILL.md frontmatter contains unsupported fields; GitHub CLI source-tracking metadata is accepted on installed copies.");
   }
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.name || "")) {
     errors.push("Skill name must use lowercase letters, digits, and single hyphens only.");
@@ -42,6 +46,12 @@ export function validateSkillPackage(skillDir = CANONICAL_SKILL_DIR) {
     errors.push("Skill description must be a non-empty string.");
   } else if (metadata.description.length > 1024) {
     errors.push("Skill description must be at most 1024 characters.");
+  }
+  if (metadata.license !== undefined && (typeof metadata.license !== "string" || metadata.license.trim().length === 0)) {
+    errors.push("Skill license must be a non-empty string when provided.");
+  }
+  if (metadata["allowed-tools"] !== undefined && typeof metadata["allowed-tools"] !== "string") {
+    errors.push("Skill allowed-tools must be a string when provided.");
   }
 
   const lineCount = source.split(/\r?\n/).length;
@@ -178,6 +188,16 @@ function validateOpenAiMetadata(root, skillName, errors) {
     if (typeof ui.default_prompt !== "string" || !ui.default_prompt.includes(`$${skillName}`)) {
       errors.push(`agents/openai.yaml interface.default_prompt must mention $${skillName}.`);
     }
+    if (typeof ui.brand_color !== "string" || !/^#[A-Fa-f0-9]{6}$/.test(ui.brand_color)) {
+      errors.push("agents/openai.yaml interface.brand_color must be a six-digit hex color.");
+    }
+    for (const key of ["icon_small", "icon_large"]) {
+      const value = ui[key];
+      const target = typeof value === "string" ? path.resolve(root, value) : null;
+      if (!target || !target.startsWith(`${root}${path.sep}`) || !fs.statSync(target, { throwIfNoEntry: false })?.isFile()) {
+        errors.push(`agents/openai.yaml interface.${key} must reference a file inside the Skill package.`);
+      }
+    }
   } catch (error) {
     errors.push(`agents/openai.yaml is invalid YAML: ${error.message}`);
   }
@@ -185,6 +205,20 @@ function validateOpenAiMetadata(root, skillName, errors) {
 
 function validateLinkedResources(root, skillSource, errors, warnings) {
   const linkedFromSkill = new Set(relativeLinks(skillSource).map(normalizeLink));
+  const openAiMetadata = path.join(root, "agents", "openai.yaml");
+  if (fs.existsSync(openAiMetadata)) {
+    try {
+      const metadata = YAML.parse(fs.readFileSync(openAiMetadata, "utf8"));
+      for (const key of ["icon_small", "icon_large"]) {
+        const value = metadata?.interface?.[key];
+        if (typeof value === "string" && value.length > 0) {
+          linkedFromSkill.add(normalizeLink(path.relative(root, path.resolve(root, value))));
+        }
+      }
+    } catch {
+      // agents/openai.yaml parsing errors are reported by validateOpenAiMetadata.
+    }
+  }
   const expected = [];
   for (const directory of ["references", "scripts", "assets"]) {
     const dir = path.join(root, directory);
@@ -233,16 +267,191 @@ function validateEvals(root, skillName, errors) {
       if (!Number.isInteger(entry.id) || typeof entry.prompt !== "string" || entry.prompt.length === 0) {
         errors.push("Every Skill eval requires an integer id and non-empty prompt.");
       }
-      if (typeof entry.expected_output !== "string" || !Array.isArray(entry.expectations) || entry.expectations.length === 0) {
+      if (
+        typeof entry.expected_output !== "string"
+        || entry.expected_output.trim().length === 0
+        || !Array.isArray(entry.expectations)
+        || entry.expectations.length === 0
+        || entry.expectations.some((expectation) => typeof expectation !== "string" || expectation.trim().length === 0)
+      ) {
         errors.push(`Skill eval ${entry.id} requires expected_output and expectations.`);
       }
       if (entry.files !== undefined && !Array.isArray(entry.files)) {
         errors.push(`Skill eval ${entry.id} files must be an array when present.`);
+      } else {
+        for (const relative of entry.files || []) {
+          if (typeof relative !== "string" || relative.length === 0) {
+            errors.push(`Skill eval ${entry.id} file entries must be non-empty strings.`);
+            continue;
+          }
+          const target = path.resolve(root, relative);
+          if (!target.startsWith(`${root}${path.sep}`) || !fs.existsSync(target)) {
+            errors.push(`Skill eval ${entry.id} fixture is missing or escapes the Skill directory: ${relative}`);
+            continue;
+          }
+          try {
+            const realRoot = fs.realpathSync(root);
+            const realTarget = fs.realpathSync(target);
+            if (
+              !fs.statSync(realTarget).isFile()
+              || !realTarget.startsWith(`${realRoot}${path.sep}`)
+            ) {
+              errors.push(`Skill eval ${entry.id} fixture must be a regular file inside the Skill directory: ${relative}`);
+            }
+          } catch (error) {
+            errors.push(`Skill eval ${entry.id} fixture cannot be inspected: ${relative}: ${error.message}`);
+          }
+        }
       }
     }
+    validateEvalResults(root, data.evals, skillName, errors);
   } catch (error) {
     errors.push(`evals/evals.json is invalid JSON: ${error.message}`);
   }
+}
+
+function validateEvalResults(root, evals, skillName, errors) {
+  const evalDir = path.join(root, "evals");
+  const resultName = `results-v${PACKAGE_VERSION}.json`;
+  const file = path.join(evalDir, resultName);
+  if (!fs.existsSync(file)) {
+    errors.push(`Skill evals require fresh-session results for package version ${PACKAGE_VERSION}: ${resultName}`);
+    return;
+  }
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    errors.push(`${path.basename(file)} is invalid JSON: ${error.message}`);
+    return;
+  }
+  if (!Array.isArray(data.results)) {
+    errors.push(`${path.basename(file)} must contain a results array.`);
+    return;
+  }
+  if (data.version !== PACKAGE_VERSION) {
+    errors.push(`${resultName} version must match package version ${PACKAGE_VERSION}.`);
+  }
+  if (data.skill_name !== skillName) {
+    errors.push(`${resultName} skill_name must match the Skill name.`);
+  }
+
+  const evalIds = evals.map((entry) => entry.id);
+  const expectationTotals = new Map(evals.map((entry) => [
+    entry.id,
+    Array.isArray(entry.expectations) ? entry.expectations.length : null
+  ]));
+  const resultIds = data.results.map((entry) => entry?.eval_id);
+  if (new Set(resultIds).size !== resultIds.length || !sameValues(resultIds, evalIds)) {
+    errors.push(`${resultName} must cover every eval ID exactly once.`);
+  }
+
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  const sessionIds = sessions.map((entry) => entry?.id);
+  const validSessionIds = sessionIds.filter((id) => typeof id === "string" && id.trim().length > 0);
+  if (sessions.length === 0 || validSessionIds.length !== sessions.length) {
+    errors.push(`${resultName} must declare non-empty fresh-session IDs.`);
+  }
+  if (new Set(validSessionIds).size !== validSessionIds.length) {
+    errors.push(`${resultName} fresh-session IDs must be unique.`);
+  }
+  const declaredSessions = new Set(validSessionIds);
+  const referencedSessions = new Set();
+  const sessionRecords = new Map();
+  for (const session of sessions) {
+    if (
+      typeof session?.id !== "string"
+      || typeof session?.artifact !== "string"
+      || !/^[a-f0-9]{64}$/.test(session?.sha256 || "")
+    ) {
+      errors.push(`${resultName} session records require id, artifact, and SHA-256.`);
+      continue;
+    }
+    const target = path.resolve(root, session.artifact);
+    try {
+      const realRoot = fs.realpathSync(root);
+      const realTarget = fs.realpathSync(target);
+      if (!realTarget.startsWith(`${realRoot}${path.sep}`) || !fs.statSync(realTarget).isFile()) {
+        throw new Error("artifact must be a regular file inside the Skill directory");
+      }
+      const raw = fs.readFileSync(realTarget);
+      const digest = crypto.createHash("sha256").update(raw).digest("hex");
+      if (digest !== session.sha256) throw new Error("artifact SHA-256 does not match");
+      const record = JSON.parse(raw.toString("utf8"));
+      if (record.id !== session.id || record.kind !== "fresh-session-review-record") {
+        throw new Error("artifact identity does not match the declared session");
+      }
+      sessionRecords.set(session.id, record);
+    } catch (error) {
+      errors.push(`${resultName} session ${session.id} artifact is invalid: ${error.message}`);
+    }
+  }
+
+  for (const entry of data.results) {
+    const expectedTotal = expectationTotals.get(entry?.eval_id);
+    if (
+      entry?.status !== "pass"
+      || !Number.isInteger(entry?.expectations_total)
+      || entry.expectations_total !== expectedTotal
+      || !Number.isInteger(entry?.expectations_passed)
+      || entry.expectations_passed < 0
+      || entry.expectations_passed !== entry.expectations_total
+    ) {
+      errors.push(`${resultName} eval ${entry?.eval_id} does not have complete passing evidence for every defined expectation.`);
+    }
+    if (typeof entry?.session !== "string" || !declaredSessions.has(entry.session)) {
+      errors.push(`${resultName} eval ${entry?.eval_id} must reference a declared fresh-session ID.`);
+    } else {
+      referencedSessions.add(entry.session);
+    }
+  }
+  for (const sessionId of declaredSessions) {
+    if (!referencedSessions.has(sessionId)) {
+      errors.push(`${resultName} fresh-session ID is not referenced by any eval result: ${sessionId}`);
+    }
+    const record = sessionRecords.get(sessionId);
+    if (!record) continue;
+    const assigned = data.results
+      .filter((entry) => entry?.session === sessionId)
+      .map((entry) => entry.eval_id);
+    const evaluations = Array.isArray(record.evaluations) ? record.evaluations : [];
+    const recorded = evaluations.map((entry) => entry?.evalId);
+    if (new Set(recorded).size !== recorded.length || !sameValues(recorded, assigned)) {
+      errors.push(`${resultName} session ${sessionId} artifact must cover its assigned eval IDs exactly once.`);
+      continue;
+    }
+    for (const evaluation of evaluations) {
+      const definition = evals.find((entry) => entry.id === evaluation.evalId);
+      const judgments = Array.isArray(evaluation.judgments) ? evaluation.judgments : [];
+      if (
+        !definition
+        || judgments.length !== definition.expectations.length
+        || judgments.some((judgment, index) => (
+          judgment?.expectation !== definition.expectations[index]
+          || judgment?.passed !== true
+          || typeof judgment?.evidence !== "string"
+          || judgment.evidence.trim().length === 0
+        ))
+      ) {
+        errors.push(`${resultName} session ${sessionId} lacks exact passing judgments for eval ${evaluation.evalId}.`);
+      }
+    }
+  }
+
+  const passed = data.results.filter((entry) => entry?.status === "pass").length;
+  const failed = data.results.length - passed;
+  if (
+    data.summary?.passed !== passed
+    || data.summary?.failed !== failed
+    || data.summary?.total !== data.results.length
+  ) {
+    errors.push(`${resultName} summary does not exactly match the recorded eval results.`);
+  }
+}
+
+function sameValues(left, right) {
+  return left.length === right.length
+    && [...left].sort((a, b) => a - b).every((value, index) => value === [...right].sort((a, b) => a - b)[index]);
 }
 
 function walkMarkdown(root) {

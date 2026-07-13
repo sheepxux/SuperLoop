@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/decision.schema.json",
+  "title": "Strategy Experiment Review Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "loop", "experimentId", "experimentSha256", "decision", "actor", "decidedAt", "reason"],
+  "properties": {
+    "apiVersion": { "type": "string", "const": "loop-engineering/v1" },
+    "loop": { "type": "string", "minLength": 1 },
+    "experimentId": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9._-]+$" },
+    "experimentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "decision": { "type": "string", "const": "reject" },
+    "actor": { "type": "string", "minLength": 1 },
+    "decidedAt": { "type": "string", "minLength": 20 },
+    "reason": { "type": "string", "minLength": 3 }
+  }
+}

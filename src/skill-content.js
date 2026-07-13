@@ -38,7 +38,7 @@ Run exactly one bounded iteration of this loop. \`loop.yaml\` is the contract; t
 
 ${PLATFORM_NOTES.get(platform)}
 
-If \`loopctl\` is not on PATH, use the repository-local \`node ./bin/loopctl.js\` or the pinned GitHub release package: \`npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.1 -- loopctl\`. Do not run a floating package version.
+If \`loopctl\` is not on PATH, use the repository-local \`node ./bin/loopctl.js\` or the pinned GitHub release package: \`npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.2 -- loopctl\`. Do not run a floating package version.
 ${spec ? "" : `
 ## 0. Locate or create the loop
 
@@ -158,7 +158,7 @@ End with a short human-readable summary: items attempted, verdicts, what landed 
 ## Hard rules
 
 - The worker never approves its own output. Only the evaluator issues verdicts.
-- Never merge, deploy, delete data, spend money, or change permissions. These are human-only${humanOnlyList(spec)}.
+- Never merge, deploy, delete data, spend money, send or publish externally, or change permissions. These are human-only${humanOnlyList(spec)}.
 - Enforcement in the v1 protocol is advisory: nothing in Loop-Engineering physically prevents a violation. Treat these rules as absolute precisely because you are the only enforcement layer.
 `;
 }
@@ -336,7 +336,7 @@ function evolutionMetricExample(spec) {
   if (!spec?.evolution?.enabled) {
     return "";
   }
-  return `,\n  "metrics": { "${spec.evolution.metric.name}": 0.0 }`;
+  return `,\n  "strategy": { "version": 1, "sha256": "<active strategy SHA-256>" },\n  "metrics": { "${spec.evolution.metric.name}": 0.0 }`;
 }
 
 function evolutionSection(spec, loopDir) {
@@ -350,7 +350,7 @@ If \`loopctl next\` reported \`evolution.due=true\`, run one bounded strategy ex
 
 1. Read recent run logs, evaluator evidence, decisions, and the active \`strategy.json\`.
 2. Form one falsifiable hypothesis and create exactly one candidate. A candidate may change only task-strategy instructions — never safety, permissions, budgets, verification, evidence requirements, or human gates.
-3. Freeze a benchmark manifest with stable case IDs. Benchmark the current and candidate strategies on those exact cases with at least \`${spec.evolution.metric.minimumSamples}\` samples each. Store per-case scores, verdicts, artifact paths, and SHA-256 digests; the aggregate \`${spec.evolution.metric.name}\` score is recomputed from those cases in the \`${spec.evolution.metric.direction}\` direction.
+3. Freeze a benchmark manifest with stable case IDs. Bind each baseline/candidate arm and every per-case evaluator record to that arm's exact strategy SHA-256. Benchmark both strategies on those exact cases with at least \`${spec.evolution.metric.minimumSamples}\` samples each. Store per-case scores, verdicts, artifact paths, and SHA-256 digests; the aggregate \`${spec.evolution.metric.name}\` score is recomputed from those cases in the \`${spec.evolution.metric.direction}\` direction.
 4. Use a fresh \`${spec.evolution.evaluator.name}\` context to run every configured command and record exit codes:
 ${commands}
 5. Write experiment JSON matching \`loopctl schema experiment\`, then validate and record it:
@@ -367,7 +367,13 @@ loopctl approval create ${loopDir} --experiment <experiment.json> --approver <hu
 loopctl evolve ${loopDir} --experiment <experiment.json> --approval <approval.json>
 \`\`\`
 
-Never approve your own strategy. Use \`loopctl strategy rollback\` to restore archived behavior as a new monotonic version when later evidence regresses.
+If the reviewer rejects the pending candidate, record an immutable decision instead of leaving the loop stuck:
+
+\`\`\`bash
+loopctl experiment reject ${loopDir} --experiment <experiment.json> --actor <human> --reason "<decision>"
+\`\`\`
+
+Rejection consumes the current evolution trigger; collect new attributable runs before proposing another experiment. Never approve your own strategy, and never reject it from a configured worker or evaluator identity. Resolve a pending experiment before using \`loopctl strategy rollback\` to restore archived behavior as a new monotonic version when later evidence regresses.
 
 `;
 }

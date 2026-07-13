@@ -63,7 +63,7 @@ The product Skill handles the lifecycle across loops. A rendered instance Skill 
 ```text
 .loop-engineering/loops/<name>/
 ├── loop.yaml
-├── state.json
+├── state.json (generation, contract digest, strategy anchors, ledgers)
 ├── strategy.json
 ├── strategies/v<N>.json
 ├── experiments/<id>.json
@@ -71,14 +71,19 @@ The product Skill handles the lifecycle across loops. A rendered instance Skill 
 ├── inbox.md
 ├── decisions.md
 ├── locks/active-run.json
+├── locks/state-transaction.json (present only during commit/recovery)
 └── runs/<run-id>/
 ```
 
-JSON/YAML state writes use same-directory temporary files, `fsync`, and atomic rename. Strategy archives make promotion and rollback auditable. A future v1.x hardening step will add full multi-file transaction journals and async lease heartbeats.
+JSON/YAML writes use same-directory temporary files, file `fsync`, atomic rename, and directory `fsync` where the platform supports it. A validated, allowlisted journal makes run/state recording and experiment staging/approval/rejection/promotion/rollback recoverable across process interruption, including partially applied writes. State includes bounded run and experiment artifact ledgers; state mutations, stale-lock recovery, and lease operations are serialized independently, and malformed or ledger-inconsistent artifacts fail closed. Strategy, approval, and rejection-decision artifacts make review, promotion, and rollback auditable. Async in-flight lease heartbeats remain a future reference-runtime improvement.
+
+Every v1.0.2 loop state carries a generation identifier and the exact `loop.yaml` SHA-256. Leases copy both bindings, so a stale runtime handle or a force-reinitialized loop cannot commit into a different generation or contract. Evolution state separately anchors the active strategy and every retained strategy archive by version and SHA-256; attributable run evidence, benchmark arms, and case evaluations bind exact strategy digests. Trigger counters since the last experiment are distinct from since-promotion audit counters.
+
+Existing v1.0.1 loop directories must be migrated with `loopctl migrate <loop-dir>` after stopping the Runner. Migration verifies the contract, active strategy, and continuous archive parent chain before writing new anchors. It marks an old pending experiment `invalidated`; rebuild it with a new ID in v1.0.2 format. Running migrate on a current consistent loop is a no-op and cannot clear pending review.
 
 ## Evolution boundary
 
-Only `strategy.json.instructions` is evolvable. The benchmark and evidence establish whether a candidate was better on observed cases; they do not prove universal improvement. Promotion requires a configured threshold and, except for explicitly low-risk automatic mode, digest-bound human approval.
+Only `strategy.json.instructions` is evolvable. The benchmark and evidence establish whether a candidate was better on observed cases; they do not prove universal improvement. Promotion requires a configured threshold and, except for explicitly low-risk automatic mode, digest-bound human approval. Human rejection is also digest-bound and immutable; neither path changes model weights.
 
 ## Non-goals
 

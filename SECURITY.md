@@ -4,7 +4,7 @@ Loop-Engineering is a workflow design and validation toolkit. It should not be t
 
 ## Supported Versions
 
-Security fixes target the latest minor version.
+Security fixes target the latest published patch in the v1 line.
 
 ## Reporting
 
@@ -19,5 +19,6 @@ The validator requires human-only gates for high-risk actions such as:
 - Deleting data.
 - Spending money.
 - Changing permissions.
+- Publishing pull requests, issue comments, or other external messages.
 
-Adapters should preserve these gates and avoid adding unattended write behavior.
+Runtime state and lease corruption must fail closed. Adapters should preserve these gates and avoid adding unattended external write behavior.

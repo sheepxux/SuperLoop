@@ -11,5 +11,9 @@
     "runtimeMinutes": 0,
     "itemsAttempted": 0,
     "estimatedUsd": 0
+  },
+  "strategy": {
+    "version": 1,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   }
 }

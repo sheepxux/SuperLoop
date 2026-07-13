@@ -4,7 +4,7 @@ Run exactly one bounded iteration of this loop. `loop.yaml` is the contract; thi
 
 This contract assumes only file IO and command execution. Run the worker and the evaluator as separate processes or prompts with no shared conversational state.
 
-If `loopctl` is not on PATH, use the repository-local `node ./bin/loopctl.js` or the pinned GitHub release package: `npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.1 -- loopctl`. Do not run a floating package version.
+If `loopctl` is not on PATH, use the repository-local `node ./bin/loopctl.js` or the pinned GitHub release package: `npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.0.2 -- loopctl`. Do not run a floating package version.
 
 ## 0. Locate or create the loop
 
@@ -130,5 +130,5 @@ End with a short human-readable summary: items attempted, verdicts, what landed 
 ## Hard rules
 
 - The worker never approves its own output. Only the evaluator issues verdicts.
-- Never merge, deploy, delete data, spend money, or change permissions. These are human-only.
+- Never merge, deploy, delete data, spend money, send or publish externally, or change permissions. These are human-only.
 - Enforcement in the v1 protocol is advisory: nothing in Loop-Engineering physically prevents a violation. Treat these rules as absolute precisely because you are the only enforcement layer.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.1/protocol/state.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/state.schema.json",
   "title": "Loop State",
   "type": "object",
   "additionalProperties": false,
@@ -12,6 +12,15 @@
     },
     "loop": {
       "type": "string"
+    },
+    "generation": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "contractSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     },
     "lastRunAt": {
       "type": ["string", "null"]
@@ -55,11 +64,34 @@
         }
       }
     },
+    "recordedRuns": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runId", "artifact", "sha256", "finishedAt", "status"],
+        "properties": {
+          "runId": { "type": "string", "minLength": 1 },
+          "artifact": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "finishedAt": { "type": "string", "minLength": 20 },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "blocked", "needs-human", "no-work", "dry-run", "budget-exceeded"]
+          }
+        }
+      }
+    },
     "budgets": {
       "type": "object",
       "additionalProperties": false,
       "required": ["runsToday", "runtimeMinutesToday"],
       "properties": {
+        "date": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
         "runsToday": {
           "type": "integer",
           "minimum": 0
@@ -91,11 +123,36 @@
           "type": "integer",
           "minimum": 1
         },
+        "currentStrategySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "strategyArchives": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "sha256"],
+            "properties": {
+              "version": { "type": "integer", "minimum": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        },
         "runsSincePromotion": {
           "type": "integer",
           "minimum": 0
         },
         "consecutiveFailures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runsSinceExperiment": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "consecutiveFailuresSinceExperiment": {
           "type": "integer",
           "minimum": 0
         },
@@ -125,12 +182,15 @@
             "properties": {
               "runId": { "type": "string" },
               "metric": { "type": "string" },
-              "score": { "type": "number" }
+              "score": { "type": "number" },
+              "strategyVersion": { "type": "integer", "minimum": 1 },
+              "strategySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
             }
           }
         },
         "history": {
           "type": "array",
+          "maxItems": 1000,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -140,16 +200,42 @@
               "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
               "outcome": {
                 "type": "string",
-                "enum": ["promoted", "rejected", "pending-review"]
+                "enum": ["promoted", "rejected", "pending-review", "invalidated", "abandoned"]
               },
               "baselineVersion": { "type": "integer", "minimum": 1 },
               "candidateVersion": { "type": "integer", "minimum": 2 },
-              "improvement": { "type": "number" }
+              "improvement": { "type": "number" },
+              "artifact": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 3 },
+              "approval": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["artifact", "sha256", "approver", "approvedAt"],
+                "properties": {
+                  "artifact": { "type": "string", "minLength": 1 },
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "approver": { "type": "string", "minLength": 1 },
+                  "approvedAt": { "type": "string", "minLength": 20 }
+                }
+              },
+              "decision": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["artifact", "sha256", "actor", "decidedAt", "reason"],
+                "properties": {
+                  "artifact": { "type": "string", "minLength": 1 },
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "actor": { "type": "string", "minLength": 1 },
+                  "decidedAt": { "type": "string", "minLength": 20 },
+                  "reason": { "type": "string", "minLength": 3 }
+                }
+              }
             }
           }
         },
         "rollbackHistory": {
           "type": "array",
+          "maxItems": 1000,
           "items": {
             "type": "object",
             "additionalProperties": false,

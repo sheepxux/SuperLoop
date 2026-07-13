@@ -1,4 +1,7 @@
 interface:
   display_name: "Loop-Engineering"
   short_description: "Design and operate verified agent loops"
-  default_prompt: "Use $loop-engineering to decide whether this task needs a loop, then design, validate, and run the safest measurable iteration."
+  icon_small: "./assets/icon-small.png"
+  icon_large: "./assets/icon-large.png"
+  brand_color: "#000000"
+  default_prompt: "Use $loop-engineering to decide whether this task needs a loop. Stop the Skill workflow for one-shot or deterministic work; otherwise choose one mode and produce the safest measurable loop artifact."

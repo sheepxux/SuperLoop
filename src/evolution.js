@@ -1,8 +1,14 @@
-export function initialEvolutionState() {
+import { sha256Json } from "./fs-utils.js";
+
+export function initialEvolutionState(strategy = null) {
   return {
     currentStrategyVersion: 1,
+    currentStrategySha256: strategy ? sha256Json(strategy) : null,
+    strategyArchives: strategy ? [{ version: strategy.version, sha256: sha256Json(strategy) }] : [],
     runsSincePromotion: 0,
     consecutiveFailures: 0,
+    runsSinceExperiment: 0,
+    consecutiveFailuresSinceExperiment: 0,
     pendingExperiment: null,
     observations: [],
     history: [],
@@ -29,14 +35,18 @@ export function evolutionPlan(spec, state, paths) {
 
   const current = state.evolution || initialEvolutionState();
   const reasons = [];
-  if (current.runsSincePromotion >= spec.evolution.trigger.afterRuns) {
+  const runsSinceExperiment = current.runsSinceExperiment ?? current.runsSincePromotion ?? 0;
+  const failuresSinceExperiment = current.consecutiveFailuresSinceExperiment
+    ?? current.consecutiveFailures
+    ?? 0;
+  if (runsSinceExperiment >= spec.evolution.trigger.afterRuns) {
     reasons.push(
-      `Strategy has run ${current.runsSincePromotion} time(s) since promotion; threshold is ${spec.evolution.trigger.afterRuns}.`
+      `Strategy has accumulated ${runsSinceExperiment} attributable run(s) since the last experiment; threshold is ${spec.evolution.trigger.afterRuns}.`
     );
   }
-  if (current.consecutiveFailures >= spec.evolution.trigger.consecutiveFailures) {
+  if (failuresSinceExperiment >= spec.evolution.trigger.consecutiveFailures) {
     reasons.push(
-      `Strategy has ${current.consecutiveFailures} consecutive failed run(s); threshold is ${spec.evolution.trigger.consecutiveFailures}.`
+      `Strategy has ${failuresSinceExperiment} consecutive failed run(s) since the last experiment; threshold is ${spec.evolution.trigger.consecutiveFailures}.`
     );
   }
 
@@ -48,6 +58,7 @@ export function evolutionPlan(spec, state, paths) {
     strategyPath: paths.strategyPath,
     experimentDir: paths.experimentDir,
     pendingExperiment: current.pendingExperiment,
+    currentStrategySha256: current.currentStrategySha256,
     metric: spec.evolution.metric,
     evaluator: spec.evolution.evaluator,
     promotion: spec.evolution.promotion
@@ -65,18 +76,28 @@ export function updateEvolutionForRun(spec, prior, runLog) {
   }
   next.runsSincePromotion += 1;
   next.consecutiveFailures = runSucceeded(runLog) ? 0 : next.consecutiveFailures + 1;
+  next.runsSinceExperiment = (next.runsSinceExperiment ?? next.runsSincePromotion - 1) + 1;
+  next.consecutiveFailuresSinceExperiment = runSucceeded(runLog)
+    ? 0
+    : (next.consecutiveFailuresSinceExperiment ?? next.consecutiveFailures - 1) + 1;
 
   const metric = spec.evolution.metric.name;
   const score = runLog.metrics?.[metric];
   if (typeof score === "number" && Number.isFinite(score)) {
-    next.observations.push({ runId: runLog.runId, metric, score });
+    next.observations.push({
+      runId: runLog.runId,
+      metric,
+      score,
+      strategyVersion: runLog.strategy.version,
+      strategySha256: runLog.strategy.sha256
+    });
     next.observations = next.observations.slice(-100);
   }
 
   return next;
 }
 
-export function assessExperiment(spec, strategy, experiment, { approve = false } = {}) {
+export function assessExperiment(spec, strategy, experiment, { approve = false, now = new Date() } = {}) {
   const config = spec.evolution;
   if (!config?.enabled) {
     throw new Error("This loop does not enable strategy evolution.");
@@ -92,8 +113,16 @@ export function assessExperiment(spec, strategy, experiment, { approve = false }
       `Experiment baseline version ${experiment.baseline.version} does not match current strategy version ${strategy.version}.`
     );
   }
+  const baselineDigest = sha256Json(strategy);
+  if (experiment.baseline.strategySha256 !== baselineDigest) {
+    throw new Error("Experiment baseline strategySha256 does not match the active strategy digest.");
+  }
 
   const candidate = experiment.candidate.strategy;
+  const candidateDigest = sha256Json(candidate);
+  if (experiment.candidate.strategySha256 !== candidateDigest) {
+    throw new Error("Experiment candidate strategySha256 does not match the candidate strategy digest.");
+  }
   if (candidate.loop !== spec.metadata.name) {
     throw new Error(`Candidate strategy loop "${candidate.loop}" does not match spec loop "${spec.metadata.name}".`);
   }
@@ -111,7 +140,9 @@ export function assessExperiment(spec, strategy, experiment, { approve = false }
     throw new Error(`Baseline and candidate each require at least ${minimumSamples} sample(s).`);
   }
   validateMatchedBenchmark(experiment);
+  validateEvolutionEvaluator(config, experiment, now);
 
+  assertUniqueCommandEvidence(experiment.evidence, "experiment evidence");
   for (const command of config.evaluator.commands) {
     const evidence = experiment.evidence.find((item) => item.command === command);
     if (!evidence) {
@@ -125,7 +156,8 @@ export function assessExperiment(spec, strategy, experiment, { approve = false }
   const improvement = config.metric.direction === "maximize"
     ? experiment.candidate.score - experiment.baseline.score
     : experiment.baseline.score - experiment.candidate.score;
-  const qualifies = improvement >= config.metric.minimumImprovement;
+  const candidatePassed = experiment.candidate.results.every((result) => result.verdict === "pass");
+  const qualifies = improvement >= config.metric.minimumImprovement && candidatePassed;
 
   let outcome;
   if (!qualifies || experiment.recommendation === "reject") {
@@ -143,10 +175,93 @@ export function assessExperiment(spec, strategy, experiment, { approve = false }
     outcome,
     improvement,
     qualifies,
+    candidatePassed,
     candidate,
     baselineVersion: strategy.version,
     candidateVersion: candidate.version
   };
+}
+
+function validateEvolutionEvaluator(config, experiment, now) {
+  const configured = normalizeIdentity(config.evaluator.name);
+  const candidateCreatedAt = experiment.candidate.strategy.createdAt === null
+    ? null
+    : parseEvolutionTimestamp(experiment.candidate.strategy.createdAt, "Candidate strategy createdAt");
+  if (normalizeIdentity(experiment.evaluator.identity) !== configured) {
+    throw new Error("Experiment evaluator identity must match evolution.evaluator.name.");
+  }
+  assertEvaluationTime(experiment.evaluator.evaluatedAt, now, "experiment evaluator", candidateCreatedAt);
+
+  const benchmarkDigest = sha256Json({
+    benchmark: experiment.benchmark,
+    baseline: experiment.baseline,
+    candidate: experiment.candidate
+  });
+  if (experiment.evaluator.benchmarkSha256 !== benchmarkDigest) {
+    throw new Error("Experiment evaluator benchmarkSha256 does not bind the recorded benchmark arms.");
+  }
+  if (experiment.evaluator.evidenceSha256 !== sha256Json(experiment.evidence)) {
+    throw new Error("Experiment evaluator evidenceSha256 does not bind the recorded evidence.");
+  }
+
+  for (const [armName, arm] of [["baseline", experiment.baseline], ["candidate", experiment.candidate]]) {
+    const strategySha256 = armName === "baseline"
+      ? experiment.baseline.strategySha256
+      : experiment.candidate.strategySha256;
+    for (const result of arm.results) {
+      if (normalizeIdentity(result.evaluation.identity) !== configured) {
+        throw new Error(`Benchmark case ${result.caseId} evaluator identity does not match evolution.evaluator.name.`);
+      }
+      assertEvaluationTime(result.evaluation.evaluatedAt, now, `benchmark case ${result.caseId}`, candidateCreatedAt);
+      if (result.evaluation.arm !== armName || result.evaluation.strategySha256 !== strategySha256) {
+        throw new Error(
+          `Benchmark case ${result.caseId} evaluation must bind the ${armName} arm and its strategy digest.`
+        );
+      }
+      assertUniqueCommandEvidence(result.evaluation.evidence, `benchmark case ${result.caseId} evidence`);
+      for (const command of config.evaluator.commands) {
+        const evidence = result.evaluation.evidence.find((item) => item.command === command);
+        if (!evidence) {
+          throw new Error(`Benchmark case ${result.caseId} is missing evaluator command evidence: ${command}`);
+        }
+        if (result.verdict === "pass" && evidence.exitCode !== 0) {
+          throw new Error(`Passing benchmark case ${result.caseId} has failing command evidence: ${command}`);
+        }
+      }
+    }
+  }
+}
+
+function assertUniqueCommandEvidence(evidence, label) {
+  const commands = evidence.map((entry) => entry.command);
+  if (new Set(commands).size !== commands.length) {
+    throw new Error(`${label} contains duplicate command evidence.`);
+  }
+}
+
+function assertEvaluationTime(value, now, label, earliest = null) {
+  const parsed = parseEvolutionTimestamp(value, `${label} evaluatedAt`);
+  const nowMs = now instanceof Date ? now.getTime() : Number.NaN;
+  if (!Number.isFinite(nowMs)) throw new Error("Evolution assessment clock must be a valid Date.");
+  if (parsed > nowMs + 5 * 60_000) throw new Error(`${label} evaluatedAt cannot be in the future.`);
+  if (earliest !== null && parsed < earliest - 5 * 60_000) {
+    throw new Error(`${label} evaluatedAt cannot predate the candidate strategy.`);
+  }
+}
+
+function parseEvolutionTimestamp(value, label) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value)) {
+    throw new Error(`${label} must be an ISO-8601 UTC timestamp.`);
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 19) !== value.slice(0, 19)) {
+    throw new Error(`${label} is not a valid UTC timestamp.`);
+  }
+  return parsed;
+}
+
+function normalizeIdentity(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function validateMatchedBenchmark(experiment) {

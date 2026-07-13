@@ -27,5 +27,5 @@ Rendered instance Skills are intentionally different from the product Skill: the
 - Never overwrite the canonical `loop-engineering` Skill with an instance.
 - Keep worker and evaluator contexts separate.
 - Treat generated commands as untrusted until inspected.
-- Pin public runtime installation to the GitHub `v1.0.1` tag; npm is an optional second distribution channel.
+- Pin public runtime installation to the GitHub `v1.0.2` tag; npm is an optional second distribution channel.
 - Do not schedule the GitHub Actions scaffold until a trusted executor, durable state channel, least-privilege permissions, and secret policy are added.

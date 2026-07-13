@@ -21,6 +21,7 @@ Inspect the latest run directory, event stream, command output, evaluator artifa
 - **Repeated failure**: move the item to the inbox after its retry cap and stop retrying unchanged work.
 - **Expired lease**: verify the owning process/run is dead before recovery; avoid deleting a newly acquired lease.
 - **State/strategy mismatch**: stop execution, retain both files, and recover from the last complete journal/archive.
+- **Missing v1.0.2 integrity binding**: stop the Runner, confirm there is no active lease, back up the loop directory, and run `loopctl migrate <loop-dir>`; never synthesize generation, contract, or strategy digests by hand.
 - **Pending experiment**: approve only the exact recorded digest or reject and create a new experiment.
 - **Missing runtime**: install the versioned CLI or run from a source checkout; do not pretend commands succeeded.
 

@@ -1,0 +1,86 @@
+{
+  "id": "agentic-v1.0.2",
+  "kind": "fresh-session-review-record",
+  "harness": "Codex isolated subagent session",
+  "model": "not retained by the harness",
+  "source": "canonical Loop-Engineering Skill v1.0.2 release candidate",
+  "transcriptRetained": false,
+  "limitations": "This is a reviewer-authored per-expectation record, not a raw model transcript or cryptographic provider attestation.",
+  "evaluations": [
+    {
+      "evalId": 1,
+      "judgments": [
+        {
+          "expectation": "Classifies the request as an agentic loop rather than a one-shot task.",
+          "passed": true,
+          "evidence": "The response selected the Design route for recurring dependency maintenance."
+        },
+        {
+          "expectation": "Bounds package discovery and items per run.",
+          "passed": true,
+          "evidence": "It proposed finite discovery and per-run item budgets."
+        },
+        {
+          "expectation": "Separates worker and evaluator contexts.",
+          "passed": true,
+          "evidence": "It assigned implementation and final judgment to separate contexts."
+        },
+        {
+          "expectation": "Places pull-request opening behind review and merge behind a human-only gate.",
+          "passed": true,
+          "evidence": "It kept PR publication review-gated and merge human-only."
+        },
+        {
+          "expectation": "Produces or proposes a valid loop.yaml artifact.",
+          "passed": true,
+          "evidence": "It proposed a concrete bounded loop contract rather than only prose."
+        }
+      ]
+    },
+    {
+      "evalId": 5,
+      "judgments": [
+        {
+          "expectation": "Reports self-evaluation as a release-blocking defect.",
+          "passed": true,
+          "evidence": "The review led with worker/evaluator identity coupling as a blocker."
+        },
+        {
+          "expectation": "Reports missing item, time, retry, and cost budgets.",
+          "passed": true,
+          "evidence": "It identified the absent finite budget and retry controls."
+        },
+        {
+          "expectation": "Does not claim the loop is safe before mechanical validation.",
+          "passed": true,
+          "evidence": "It withheld a health claim pending schema validation and doctor output."
+        }
+      ]
+    },
+    {
+      "evalId": 6,
+      "judgments": [
+        {
+          "expectation": "Restricts evolution to strategy instructions outside loop.yaml.",
+          "passed": true,
+          "evidence": "The response froze the contract and limited candidates to strategy.json instructions."
+        },
+        {
+          "expectation": "Requires identical benchmark case IDs and mechanically derived scores.",
+          "passed": true,
+          "evidence": "It required matched cases and scores recomputed from case results."
+        },
+        {
+          "expectation": "Prevents candidates from changing safety, permissions, budgets, or verification.",
+          "passed": true,
+          "evidence": "It explicitly excluded governance and verification fields from the evolvable surface."
+        },
+        {
+          "expectation": "Includes human review and rollback for a medium-risk development loop.",
+          "passed": true,
+          "evidence": "It required digest-bound review, immutable archives, and rollback."
+        }
+      ]
+    }
+  ]
+}

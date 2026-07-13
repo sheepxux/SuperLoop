@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { copyFile, readData, readText, repoRoot, schemaPath, sha256Json, writeJson, writeText, writeYaml } from "./fs-utils.js";
+import crypto from "node:crypto";
+import { copyFile, loopAdminLockPath, readData, readText, repoRoot, schemaPath, sha256Json, withFileLock, writeJson, writeText, writeYaml } from "./fs-utils.js";
 import { runDoctor } from "./doctor.js";
 import { initialEvolutionState, initialStrategy } from "./evolution.js";
-import { nextRun, recordExperiment, recordRun, resolveLoop, rollbackStrategy } from "./loop-state.js";
+import { migrateLoopState, nextRun, readLoopState, recordExperiment, recordRun, rejectPendingExperiment, resolveLoop, rollbackStrategy } from "./loop-state.js";
 import { renderAdapter, RENDERERS } from "./renderers.js";
 import { listRuns, setPaused, statusLoops } from "./runner.js";
 import {
@@ -70,6 +71,12 @@ export async function main(argv) {
   if (command === "approval") {
     return approvalCommand(rest);
   }
+  if (command === "experiment") {
+    return experimentCommand(rest);
+  }
+  if (command === "migrate") {
+    return migrateCommand(rest);
+  }
 
   throw new Error(`Unknown command "${command}". Run loopctl --help.`);
 }
@@ -124,8 +131,13 @@ function initCommand(args) {
   }
 
   const loopDir = path.join(outRoot, name);
+  return withFileLock(loopAdminLockPath(loopDir), () => {
   if (fs.existsSync(loopDir) && !force && fs.readdirSync(loopDir).length > 0) {
     throw new Error(`Refusing to overwrite non-empty directory: ${loopDir}. Pass --force to replace files.`);
+  }
+  if (fs.existsSync(loopDir) && force) {
+    assertForceReplaceIsSafe(loopDir);
+    fs.rmSync(loopDir, { recursive: true, force: true });
   }
 
   fs.mkdirSync(path.join(loopDir, "runs"), { recursive: true });
@@ -137,19 +149,23 @@ function initCommand(args) {
   const state = {
     apiVersion: "loop-engineering/v1",
     loop: name,
+    generation: crypto.randomUUID(),
+    contractSha256: sha256Json(spec),
     lastRunAt: null,
     paused: false,
     pauseReason: null,
     items: [],
+    recordedRuns: [],
     budgets: {
+      date: null,
       runsToday: 0,
       runtimeMinutesToday: 0,
       estimatedUsdToday: 0
     }
   };
   if (spec.evolution?.enabled) {
-    state.evolution = initialEvolutionState();
     const strategy = initialStrategy(spec, name);
+    state.evolution = initialEvolutionState(strategy);
     writeJson(path.join(loopDir, "strategy.json"), strategy);
     writeJson(path.join(loopDir, "strategies", "v1.json"), strategy);
   }
@@ -158,6 +174,7 @@ function initCommand(args) {
   writeText(path.join(loopDir, "decisions.md"), `# ${name} Decisions\n\nRecord durable human decisions here.\n`);
 
   console.log(`Initialized ${loopDir}`);
+  });
 }
 
 function renderCommand(args) {
@@ -212,12 +229,12 @@ function recordCommand(args) {
   const target = args[0];
   const options = parseOptions(args.slice(1));
   if (!target || !options.run || options.run === true) {
-    throw new Error("Usage: loopctl record <loop-dir|loop.yaml> --run <run-log.json> [--force]");
+    throw new Error("Usage: loopctl record <loop-dir|loop.yaml> --run <run-log.json>");
   }
 
   const loop = resolveLoop(target);
   const runLog = readData(options.run);
-  const outcome = recordRun(loop, runLog, { force: options.force === true });
+  const outcome = recordRun(loop, runLog);
 
   console.log(`Recorded ${outcome.runFile}`);
   console.log(`Updated ${outcome.statePath}`);
@@ -234,16 +251,13 @@ function evolveCommand(args) {
   const target = args[0];
   const options = parseOptions(args.slice(1));
   if (!target || !options.experiment || options.experiment === true) {
-    throw new Error("Usage: loopctl evolve <loop-dir|loop.yaml> --experiment <experiment.json> [--approval <approval.json>] [--force]");
+    throw new Error("Usage: loopctl evolve <loop-dir|loop.yaml> --experiment <experiment.json> [--approval <approval.json>]");
   }
 
   const loop = resolveLoop(target);
   const experiment = readData(options.experiment);
   const approval = typeof options.approval === "string" ? readData(options.approval) : null;
-  const outcome = recordExperiment(loop, experiment, {
-    approval,
-    force: options.force === true
-  });
+  const outcome = recordExperiment(loop, experiment, { approval });
 
   console.log(`Experiment ${outcome.assessment.outcome}: ${outcome.experimentFile}`);
   console.log(`Measured improvement: ${outcome.assessment.improvement}`);
@@ -318,7 +332,7 @@ function checkCommand(args) {
   const schemaName = args[0];
   const files = args.slice(1);
   if (!schemaName || files.length === 0) {
-    throw new Error("Usage: loopctl check <loop|state|evaluator|run-log|strategy|experiment|approval> <file...>");
+    throw new Error("Usage: loopctl check <loop|state|evaluator|run-log|strategy|experiment|approval|decision> <file...>");
   }
 
   let failed = false;
@@ -424,7 +438,7 @@ function approvalCommand(args) {
   const loop = resolveLoop(target);
   const experiment = readData(options.experiment);
   const digest = sha256Json(experiment);
-  const state = readData(loop.statePath);
+  const state = readLoopState(loop);
   const pending = state.evolution?.pendingExperiment;
   if (!pending || pending.experimentId !== experiment.experimentId || pending.sha256 !== digest) {
     throw new Error("The experiment is not the exact pending candidate recorded in loop state.");
@@ -443,6 +457,42 @@ function approvalCommand(args) {
   if (!validation.ok) throw new Error(`Refusing to write invalid approval: ${validation.errors.join("; ")}`);
   writeJson(options.out, approval);
   console.log(`Wrote digest-bound approval: ${options.out}`);
+}
+
+function experimentCommand(args) {
+  const action = args[0];
+  const target = args[1];
+  const options = parseOptions(args.slice(2));
+  if (
+    action !== "reject"
+    || !target
+    || typeof options.experiment !== "string"
+    || typeof options.actor !== "string"
+    || typeof options.reason !== "string"
+  ) {
+    throw new Error(
+      "Usage: loopctl experiment reject <loop-dir|loop.yaml> --experiment <file> --actor <human> --reason <text>"
+    );
+  }
+  const outcome = rejectPendingExperiment(resolveLoop(target), readData(options.experiment), {
+    actor: options.actor,
+    reason: options.reason
+  });
+  console.log(`Rejected pending experiment with immutable decision: ${outcome.decisionFile}`);
+  console.log(`Updated ${outcome.statePath}`);
+}
+
+function migrateCommand(args) {
+  const target = args[0];
+  const options = parseOptions(args.slice(1));
+  if (!target) throw new Error("Usage: loopctl migrate <loop-dir|loop.yaml> [--retire-expired-lease]");
+  const outcome = migrateLoopState(resolveLoop(target), {
+    allowRemoteExpiredLease: options["retire-expired-lease"] === true
+  });
+  console.log(`${outcome.alreadyMigrated ? "Integrity bindings already current" : "Migrated integrity bindings"}: ${outcome.statePath}`);
+  console.log(`Generation: ${outcome.generation}`);
+  console.log(`Contract SHA-256: ${outcome.contractSha256}`);
+  console.log(`Anchored strategy archives: ${outcome.strategyArchives}`);
 }
 
 function parseOptions(args) {
@@ -469,6 +519,31 @@ function normalizeBranchPrefix(prefix, name) {
     return `loop-engineering/${name}`;
   }
   return prefix;
+}
+
+function assertForceReplaceIsSafe(loopDir) {
+  const coordinationArtifacts = [
+    path.join(loopDir, "locks", "active-run.json"),
+    path.join(loopDir, "locks", "state-update.lock"),
+    path.join(loopDir, "locks", "state-transaction.json")
+  ];
+  const blocker = coordinationArtifacts.find((candidate) => pathEntryExists(candidate));
+  if (blocker) {
+    throw new Error(
+      `Refusing to force-replace ${loopDir} while coordination artifact exists: ${blocker}. `
+      + "Finish or recover the active operation before retrying."
+    );
+  }
+}
+
+function pathEntryExists(candidate) {
+  try {
+    fs.lstatSync(candidate);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 function printValidationResult(result) {
@@ -501,7 +576,7 @@ Commands:
   pause <loop-dir> [--reason TEXT]         Pause scheduling for a loop
   resume <loop-dir>                        Resume scheduling for a loop
   check <schema> <file...>                Validate data files against a protocol schema
-  schema <loop|state|evaluator|run-log|strategy|experiment|approval>
+  schema <loop|state|evaluator|run-log|strategy|experiment|approval|decision>
                                            Print or copy a protocol schema
   doctor                                  Check whether the repo is publish-ready
   skill validate [dir] [--json]           Validate the canonical Agent Skill package
@@ -509,6 +584,8 @@ Commands:
   skill path                              Print the canonical Skill directory
   strategy rollback <loop-dir> [options]  Restore archived strategy behavior as a new version
   approval create <loop-dir> [options]    Create a human approval bound to a pending experiment
+  experiment reject <loop-dir> [options] Reject a pending experiment with an immutable human decision
+  migrate <loop-dir|loop.yaml> [options]  Add v1.0.2 generation, contract, and strategy digest anchors
 
 Adapters:
   ${[...RENDERERS].join(", ")}

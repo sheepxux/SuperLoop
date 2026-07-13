@@ -8,12 +8,9 @@ const HIGH_RISK_PERMISSIONS = new Map([
   ["delete-data", "delete-data"],
   ["spend-money", "spend-money"],
   ["change-permissions", "change-permissions"],
-  ["write-external-system", "write-external-system"]
-]);
-
-const REVIEW_OUTPUTS = new Map([
-  ["pull-request", "open-pull-request"],
-  ["issue-comment", "comment-on-issue"]
+  ["write-external-system", "write-external-system"],
+  ["open-pr", "open-pull-request"],
+  ["comment-issue", "comment-on-issue"]
 ]);
 
 export function validateLoopFile(filePath) {
@@ -154,13 +151,13 @@ function customChecks(spec, errors, warnings) {
     }
   }
 
-  const needsReview = new Set(normalizeList([
-    ...spec.safety.humanGates.needsReview,
-    ...spec.safety.humanGates.humanOnly
-  ]));
-  for (const [output, actionId] of REVIEW_OUTPUTS) {
-    if (spec.outputs.includes(output) && !needsReview.has(actionId)) {
-      errors.push(`output "${output}" must have a matching needsReview or humanOnly gate.`);
+  const externalOutputs = new Map([
+    ["pull-request", "open-pull-request"],
+    ["issue-comment", "comment-on-issue"]
+  ]);
+  for (const [output, actionId] of externalOutputs) {
+    if (spec.outputs.includes(output) && !humanOnly.has(actionId)) {
+      errors.push(`external output "${output}" must have a matching humanOnly gate.`);
     }
   }
 

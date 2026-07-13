@@ -9,6 +9,21 @@ import { validateSkillPackage } from "../src/skill-package.js";
 import { validateLoopSpec } from "../src/validation.js";
 
 const example = readData("examples/ci-triage/loop.yaml");
+const packageVersion = readData("package.json").version;
+
+function copyCanonicalSkill(prefix) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const skillDir = path.join(tmp, "loop-engineering");
+  fs.cpSync("skills/loop-engineering", skillDir, { recursive: true });
+  return { tmp, skillDir };
+}
+
+function mutateEvalResults(skillDir, mutate) {
+  const file = path.join(skillDir, "evals", `results-v${packageVersion}.json`);
+  const data = readData(file);
+  mutate(data);
+  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+}
 
 test("valid example loop passes validation", () => {
   const result = validateLoopSpec(example, "ci-triage");
@@ -33,6 +48,23 @@ test("high-risk permission requires human-only gate", () => {
   const result = validateLoopSpec(spec, "bad-loop");
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /high-risk permission "merge"/);
+});
+
+test("external pull request output remains human-only", () => {
+  const spec = structuredClone(example);
+  spec.safety.humanGates.humanOnly = spec.safety.humanGates.humanOnly.filter((gate) => gate !== "open-pull-request");
+  spec.safety.humanGates.needsReview.push("open-pull-request");
+  const result = validateLoopSpec(spec, "unsafe-external-output");
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /open-pr.*humanOnly|pull-request.*humanOnly/);
+});
+
+test("verification verdict list must contain each protocol verdict exactly once", () => {
+  const spec = structuredClone(example);
+  spec.verification.verdicts = ["fail", "fail", "fail", "fail"];
+  const result = validateLoopSpec(spec, "duplicate-verdicts");
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /duplicate items/);
 });
 
 test("human gates require exact typed action IDs instead of substring matches", () => {
@@ -98,6 +130,51 @@ test("init normalizes template branch prefix to loop name", async () => {
   assert.equal(spec.handoff.worktree.branchPrefix, "loop-engineering/nightly-docs");
 });
 
+test("init force replaces the complete prior loop directory", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-init-force-"));
+  await main(["init", "ci-triage", "--from", "examples/ci-triage/loop.yaml", "--out", tmp]);
+  const loopDir = path.join(tmp, "ci-triage");
+  const stale = path.join(loopDir, "runs", "stale.json");
+  fs.writeFileSync(stale, "{}\n");
+
+  await main(["init", "ci-triage", "--from", "examples/ci-triage/loop.yaml", "--out", tmp, "--force"]);
+  assert.equal(fs.existsSync(stale), false);
+  assert.deepEqual(fs.readdirSync(path.join(loopDir, "runs")), []);
+  assert.equal(readData(path.join(loopDir, "state.json")).budgets.runsToday, 0);
+});
+
+test("init force fails closed while any loop coordination artifact exists", async (t) => {
+  const blockers = [
+    { relative: path.join("locks", "active-run.json"), directory: false },
+    { relative: path.join("locks", "state-update.lock"), directory: true },
+    { relative: path.join("locks", "state-transaction.json"), directory: false }
+  ];
+
+  for (const blocker of blockers) {
+    await t.test(blocker.relative, async () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-init-force-lock-"));
+      await main(["init", "ci-triage", "--from", "examples/ci-triage/loop.yaml", "--out", tmp]);
+      const loopDir = path.join(tmp, "ci-triage");
+      const marker = path.join(loopDir, "preserve-me.txt");
+      const blockedPath = path.join(loopDir, blocker.relative);
+      fs.writeFileSync(marker, "preserved\n");
+      fs.mkdirSync(path.dirname(blockedPath), { recursive: true });
+      if (blocker.directory) {
+        fs.mkdirSync(blockedPath);
+      } else {
+        fs.writeFileSync(blockedPath, "malformed coordination data\n");
+      }
+
+      await assert.rejects(
+        main(["init", "ci-triage", "--from", "examples/ci-triage/loop.yaml", "--out", tmp, "--force"]),
+        /Refusing to force-replace.*coordination artifact exists/
+      );
+      assert.equal(fs.readFileSync(marker, "utf8"), "preserved\n");
+      assert.equal(fs.lstatSync(blockedPath).isDirectory(), blocker.directory);
+    });
+  }
+});
+
 test("render creates codex and claude-code adapter files", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-render-"));
   await main(["render", "codex", "examples/ci-triage/loop.yaml", "--out", tmp]);
@@ -129,6 +206,9 @@ test("github-actions scaffold validates loop spec, not state file", async () => 
   await main(["render", "github-actions-scaffold", "examples/ci-triage/loop.yaml", "--out", tmp]);
   const workflow = fs.readFileSync(path.join(tmp, ".github", "workflows", "ci-triage.yml"), "utf8");
   assert.match(workflow, /loopctl validate '\.loop-engineering\/loops\/ci-triage\/loop\.yaml'/);
+  assert.match(workflow, /actions\/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6/);
+  assert.match(workflow, /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
+  assert.doesNotMatch(workflow, /actions\/(?:checkout|setup-node)@v4/);
   assert.doesNotMatch(workflow, /loopctl validate .*state\.json/);
   assert.equal(fs.existsSync(path.join(tmp, ".loop-engineering", "loops", "ci-triage", "loop.yaml")), true);
 });
@@ -164,8 +244,8 @@ test("Skill validation accepts GitHub CLI source and pin metadata on an installe
   const tracking = [
     "metadata:",
     "  github-path: skills/loop-engineering",
-    "  github-pinned: v1.0.1",
-    "  github-ref: refs/tags/v1.0.1",
+    "  github-pinned: v1.0.2",
+    "  github-ref: refs/tags/v1.0.2",
     "  github-repo: https://github.com/sheepxux/Loop-Engineering",
     "  github-tree-sha: 0123456789abcdef0123456789abcdef01234567"
   ].join("\n");
@@ -173,4 +253,83 @@ test("Skill validation accepts GitHub CLI source and pin metadata on an installe
 
   const validation = validateSkillPackage(installed);
   assert.equal(validation.ok, true, validation.errors.join("\n"));
+});
+
+test("Skill eval validation binds fresh-session results to the package version and definitions", () => {
+  const stale = copyCanonicalSkill("loop-engineering-stale-evals-");
+  fs.renameSync(
+    path.join(stale.skillDir, "evals", `results-v${packageVersion}.json`),
+    path.join(stale.skillDir, "evals", "results-v0.0.0.json")
+  );
+  let validation = validateSkillPackage(stale.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /package version/);
+
+  const mismatched = copyCanonicalSkill("loop-engineering-mismatched-evals-");
+  mutateEvalResults(mismatched.skillDir, (data) => {
+    data.version = "0.0.0";
+  });
+  validation = validateSkillPackage(mismatched.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /version must match package version/);
+
+  const forged = copyCanonicalSkill("loop-engineering-forged-evals-");
+  mutateEvalResults(forged.skillDir, (data) => {
+    data.results[0].expectations_passed = -1;
+    data.results[1].expectations_passed = 1;
+    data.results[1].expectations_total = 1;
+  });
+  validation = validateSkillPackage(forged.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /every defined expectation/);
+});
+
+test("Skill eval validation requires complete unique sessions and an exact summary", () => {
+  const copy = copyCanonicalSkill("loop-engineering-session-evals-");
+  mutateEvalResults(copy.skillDir, (data) => {
+    data.sessions[1].id = data.sessions[0].id;
+    data.results[0].session = "undeclared-session";
+    data.summary.passed -= 1;
+  });
+
+  const validation = validateSkillPackage(copy.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /session IDs must be unique/);
+  assert.match(validation.errors.join("\n"), /must reference a declared fresh-session ID/);
+  assert.match(validation.errors.join("\n"), /summary does not exactly match/);
+});
+
+test("Skill eval session review records are digest-bound and expectation-complete", () => {
+  const copy = copyCanonicalSkill("loop-engineering-session-artifact-");
+  const resultFile = path.join(copy.skillDir, "evals", `results-v${packageVersion}.json`);
+  const results = readData(resultFile);
+  const session = results.sessions[0];
+  const artifact = path.resolve(copy.skillDir, session.artifact);
+  const record = readData(artifact);
+  record.evaluations[0].judgments[0].passed = false;
+  fs.writeFileSync(artifact, `${JSON.stringify(record, null, 2)}\n`);
+
+  const validation = validateSkillPackage(copy.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /SHA-256 does not match/);
+});
+
+test("Skill eval fixtures must be regular files with real paths inside the Skill", () => {
+  const escaped = copyCanonicalSkill("loop-engineering-escaped-fixture-");
+  const escapedFixture = path.join(escaped.skillDir, "evals", "fixtures", "unsafe-loop.yaml");
+  const outside = path.join(escaped.tmp, "outside-loop.yaml");
+  fs.writeFileSync(outside, "outside: true\n");
+  fs.rmSync(escapedFixture);
+  fs.symlinkSync(outside, escapedFixture);
+  let validation = validateSkillPackage(escaped.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /regular file inside the Skill directory/);
+
+  const directory = copyCanonicalSkill("loop-engineering-directory-fixture-");
+  const directoryFixture = path.join(directory.skillDir, "evals", "fixtures", "unsafe-loop.yaml");
+  fs.rmSync(directoryFixture);
+  fs.mkdirSync(directoryFixture);
+  validation = validateSkillPackage(directory.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /regular file inside the Skill directory/);
 });

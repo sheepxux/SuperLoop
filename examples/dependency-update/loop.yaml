@@ -86,9 +86,10 @@ safety:
       - "write-isolated-worktree"
       - "run-tests"
     needsReview:
+      - "review-local-draft"
+    humanOnly:
       - "open-pull-request"
       - "comment-on-issue"
-    humanOnly:
       - "merge-pull-request"
       - "major-version-migration-decision"
       - "deploy-production"

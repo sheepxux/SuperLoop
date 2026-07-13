@@ -39,6 +39,8 @@ For every attempted item, require a schema-valid evaluator result containing the
 
 Write run artifacts before updating the active state, use atomic replacement where available, and retain failure artifacts. Use `loopctl record` or Runner-managed persistence; never hand-edit counters.
 
+When evolution is enabled, bind the run log to the exact active `strategy.json` version and SHA-256 from preflight. If that anchor changes before recording, discard the stale result and start a new run; never attribute old-strategy evidence to a promoted strategy.
+
 ## Completion report
 
 List attempted items, verdicts, exact checks, evidence paths, budget usage, state changes, attention items, and the next bounded action.

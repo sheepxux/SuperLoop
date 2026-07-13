@@ -7,18 +7,20 @@
 - Codex and Claude Code plugin/marketplace packaging.
 - Portable protocol v1 with typed action gates and safe persistence paths.
 - Evidence-bound run results with independent evaluator artifacts and SHA-256 verification.
-- Hard item, time, daily-run, and cost limits.
-- Local Runner with dry-run/command modes, leases, timeouts, events, and pause/resume.
-- Benchmark manifests, matched per-case strategy results, mechanically recomputed scores, digest-bound human approvals, strategy archives, and rollback.
+- Loop-generation/contract bindings plus active and archived strategy digest anchors.
+- Hard discovery, item, time, daily-run, and cost limits with serialized accounting.
+- Local Runner with trusted dry-run/command boundaries, fail-closed leases, timeouts, events, and pause/resume.
+- Recoverable, allowlisted transaction journals for run/state and experiment/approval/rejection/strategy transitions.
+- Trigger-gated benchmark experiments, configured per-case evaluator attestations, matched digest-attributed strategy results, mechanically recomputed scores, one pending candidate, immutable human approvals/rejections, strategy archives, and rollback.
 - Platform-specific loop-instance renderers and an explicitly non-operational GitHub Actions preflight scaffold.
 
 ## v1.x hardening
 
 - Async process supervision with lease heartbeats and whole-process-group termination.
-- Transaction journals and crash-recovery commands for multi-file state transitions.
+- Operator-facing journal inspection, recovery previews, and guided recovery commands; the underlying transaction journal and fail-closed automatic recovery are already implemented.
 - Stronger runtime sandbox integrations for untrusted commands.
-- Signed evaluator/provenance attestations for remote runners.
-- Held-out Skill eval automation across Codex and Claude Code.
+- Cryptographically signed evaluator/provenance attestations for remote runners.
+- Provider-backed held-out Skill eval automation across Codex and Claude Code; v1.0.2 already retains fresh-session review evidence.
 
 ## Later
 

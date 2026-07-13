@@ -10,7 +10,8 @@ const names = [
   "run-log.json",
   "strategy.json",
   "experiment.json",
-  "approval.json"
+  "approval.json",
+  "decision.json"
 ];
 
 for (const name of names) {

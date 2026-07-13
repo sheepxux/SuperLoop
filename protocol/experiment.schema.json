@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.1/protocol/experiment.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/experiment.schema.json",
   "title": "Strategy Evolution Experiment",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "loop", "experimentId", "metric", "benchmark", "baseline", "candidate", "evidence", "recommendation"],
+  "required": ["apiVersion", "loop", "experimentId", "metric", "benchmark", "baseline", "candidate", "evaluator", "evidence", "recommendation"],
   "properties": {
     "apiVersion": { "type": "string", "const": "loop-engineering/v1" },
     "loop": { "type": "string", "minLength": 1 },
-    "experimentId": { "type": "string", "minLength": 3, "pattern": "^[A-Za-z0-9._-]+$" },
+    "experimentId": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9._-]+$" },
     "metric": { "type": "string", "minLength": 2 },
     "benchmark": {
       "type": "object",
@@ -27,9 +27,10 @@
     "baseline": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "score", "samples", "results"],
+      "required": ["version", "strategySha256", "score", "samples", "results"],
       "properties": {
         "version": { "type": "integer", "minimum": 1 },
+        "strategySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "score": { "type": "number" },
         "samples": { "type": "integer", "minimum": 1 },
         "results": { "$ref": "#/$defs/caseResults" }
@@ -38,12 +39,25 @@
     "candidate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["strategy", "score", "samples", "results"],
+      "required": ["strategy", "strategySha256", "score", "samples", "results"],
       "properties": {
         "strategy": { "$ref": "strategy.schema.json" },
+        "strategySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "score": { "type": "number" },
         "samples": { "type": "integer", "minimum": 1 },
         "results": { "$ref": "#/$defs/caseResults" }
+      }
+    },
+    "evaluator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "contextId", "evaluatedAt", "benchmarkSha256", "evidenceSha256"],
+      "properties": {
+        "identity": { "type": "string", "minLength": 1 },
+        "contextId": { "type": "string", "minLength": 1 },
+        "evaluatedAt": { "type": "string", "minLength": 20 },
+        "benchmarkSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "evidenceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
     "evidence": {
@@ -72,13 +86,39 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["caseId", "score", "verdict", "artifact", "sha256"],
+        "required": ["caseId", "score", "verdict", "artifact", "sha256", "evaluation"],
         "properties": {
           "caseId": { "type": "string", "minLength": 1 },
           "score": { "type": "number" },
           "verdict": { "type": "string", "enum": ["pass", "fail"] },
           "artifact": { "type": "string", "minLength": 1 },
-          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "evaluation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["identity", "contextId", "evaluatedAt", "arm", "strategySha256", "evidence"],
+            "properties": {
+              "identity": { "type": "string", "minLength": 1 },
+              "contextId": { "type": "string", "minLength": 1 },
+              "evaluatedAt": { "type": "string", "minLength": 20 },
+              "arm": { "type": "string", "enum": ["baseline", "candidate"] },
+              "strategySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["command", "exitCode", "summary"],
+                  "properties": {
+                    "command": { "type": "string", "minLength": 1 },
+                    "exitCode": { "type": "integer" },
+                    "summary": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
