@@ -19,6 +19,15 @@ The installed `loop-engineering` Skill assesses, designs, operates, reviews, and
 
 Codex project instances belong under `.agents/skills/<loop-name>/`. Claude Code project instances belong under `.claude/skills/<loop-name>/`.
 
+Initialize a proposal-compiled contract with the exact approved name and root:
+
+```bash
+LOOP_NAME="<exact loop.yaml metadata.name>"
+loopctl init "$LOOP_NAME" --from loop.yaml --out .loop-engineering/loops
+```
+
+The approved paths remain `.loop-engineering/loops/<name>/{state.json,runs/,inbox.md,decisions.md}`. `init` must fail instead of renaming a provenance-bound contract or relocating its state; change those fields through a new proposal revision and human approval.
+
 ## Local Runner
 
 Use:

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import os from "node:os";
-import { fsyncDirectory, loopAdminLockPath, readData, sha256Json, withFileLock, writeJson } from "./fs-utils.js";
+import { fsyncDirectory, loopAdminLockPath, readData, sha256Json, withFileLock, writeJson, writeTextAtomic, writeTextExclusive } from "./fs-utils.js";
 import {
   assessExperiment,
   evolutionPlan,
@@ -195,6 +195,7 @@ function assertStateTemporalBounds(state, now) {
 export function readBoundState(loop) {
   const state = readState(loop.statePath, loop.spec.metadata.name);
   assertStateBinding(loop, state);
+  assertWorkPlanStateConsistent(loop, state);
   return state;
 }
 
@@ -254,11 +255,29 @@ function nextRunLocked(loop, now) {
     reasons.push("Retry policy requires the run to stop because at least one item exhausted its retry budget.");
   }
 
+  const workPlan = spec.workPlan ? deriveWorkPlan(loop, state) : null;
+  if (workPlan?.phase === "completed") {
+    reasons.push("Finite work plan is already completed.");
+  } else if (workPlan?.phase === "work" && workPlan.eligibleParts.length === 0) {
+    reasons.push("Finite work plan has unfinished parts but none are currently eligible.");
+  }
+  if (
+    workPlan
+    && state.lifecycle.goalEvaluationAttempts >= spec.workPlan.completion.maxAttempts
+    && state.lifecycle.lastGoalEvaluation?.verdict !== "pass"
+  ) {
+    reasons.push(
+      `Final Goal evaluation attempt budget exhausted (${state.lifecycle.goalEvaluationAttempts}/${spec.workPlan.completion.maxAttempts}).`
+    );
+  }
+
   return {
     loop: spec.metadata.name,
     ok: reasons.length === 0,
     reasons,
-    itemsAllowed: Math.min(spec.discovery.maxItemsPerRun, budgets.maxItemsPerRun),
+    itemsAllowed: workPlan
+      ? workPlan.phase === "work" ? workPlan.eligibleParts.length : 0
+      : Math.min(spec.discovery.maxItemsPerRun, budgets.maxItemsPerRun),
     budget: {
       runsToday,
       maxDailyRuns: budgets.maxDailyRuns,
@@ -269,17 +288,283 @@ function nextRunLocked(loop, now) {
       maxEstimatedUsdPerRun: budgets.maxEstimatedUsdPerRun ?? null,
       dayRolledOver: rolledOver
     },
-    retryQueue,
+    retryQueue: workPlan
+      ? workPlan.eligibleParts.map(({ id, status, retries: count }) => ({ id, status, retries: count }))
+      : retryQueue,
     exhausted,
     needsHuman,
     humanOnly: spec.safety.humanGates.humanOnly,
     stopConditions: spec.goal.stopConditions,
-    evolution: evolutionPlan(spec, state, loop)
+    evolution: evolutionPlan(spec, state, loop),
+    ...(workPlan || {})
   };
+}
+
+function deriveWorkPlan(loop, state) {
+  const { spec } = loop;
+  const parts = spec.workPlan.parts;
+  const stateById = new Map(state.items.map((item) => [item.id, item]));
+  const retries = spec.safety.retries;
+  const eligible = [];
+  const lockedParts = [];
+
+  for (const part of parts) {
+    const item = stateById.get(part.id);
+    if (item.status === "passed") continue;
+    const waitingOn = part.dependsOn.filter((id) => stateById.get(id)?.status !== "passed");
+    const retryable = item.status === "open"
+      || (item.status === "failed" && item.retries < retries.maxRetriesPerItem);
+    if (waitingOn.length > 0 || !retryable) {
+      lockedParts.push({
+        id: part.id,
+        status: item.status,
+        retries: item.retries,
+        dependsOn: [...part.dependsOn],
+        waitingOn,
+        reason: waitingOn.length > 0 ? "dependencies-not-passed" : "part-not-retryable"
+      });
+      continue;
+    }
+    eligible.push({
+      id: part.id,
+      title: part.title,
+      status: item.status,
+      retries: item.retries,
+      partDefinitionSha256: sha256Json(part)
+    });
+  }
+
+  const cap = Math.min(
+    spec.workPlan.maxPartsPerRun,
+    spec.discovery.maxItemsPerRun,
+    spec.safety.budgets.maxItemsPerRun
+  );
+  eligible.sort((left, right) => Number(left.status !== "failed") - Number(right.status !== "failed"));
+  const allPassed = parts.every((part) => stateById.get(part.id)?.status === "passed");
+  const phase = state.lifecycle.status === "completed"
+    ? "completed"
+    : allPassed
+      ? "goal-evaluation"
+      : "work";
+
+  return {
+    phase,
+    eligibleParts: eligible.slice(0, cap),
+    lockedParts,
+    goalEvaluationBasisSha256: phase === "goal-evaluation" || phase === "completed"
+      ? goalEvaluationBasisSha256(loop, state)
+      : null
+  };
+}
+
+export function goalEvaluationBasisSha256(loop, state) {
+  if (!loop.spec.workPlan) throw new Error("Goal evaluation basis requires a finite work plan.");
+  const stateById = new Map(state.items.map((item) => [item.id, item]));
+  return sha256Json({
+    contractSha256: state.contractSha256,
+    parts: loop.spec.workPlan.parts.map((part) => {
+      const item = stateById.get(part.id);
+      return {
+        id: part.id,
+        definitionSha256: sha256Json(part),
+        status: item.status,
+        artifacts: item.artifacts || []
+      };
+    })
+  });
 }
 
 export function readLoopState(loop) {
   return withLoopStateLock(loop, () => readBoundState(loop));
+}
+
+export function restoreRunnerProtectedFiles(loop, {
+  expectedState,
+  expectedStateSource,
+  expectedSpecSource,
+  evidenceDir,
+  leaseToken,
+  runId,
+  now = new Date()
+}) {
+  return withLoopStateLock(loop, () => {
+    assertStateBinding(loop, expectedState);
+    assertActiveLeaseAccess(loop, leaseToken, {
+      required: true,
+      runId,
+      now,
+      state: expectedState
+    });
+    assertManagedTransactionTarget(loop, path.join(evidenceDir, "evidence-boundary"));
+    const readSource = (target) => {
+      try {
+        return fs.readFileSync(target, "utf8");
+      } catch (error) {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      }
+    };
+    const currentStateSource = readSource(loop.statePath);
+    const currentSpecSource = readSource(loop.specPath);
+    const stateChanged = currentStateSource !== expectedStateSource;
+    const specChanged = currentSpecSource !== expectedSpecSource;
+    if (!stateChanged && !specChanged) return { changed: false, evidence: [] };
+
+    const evidence = [];
+    for (const [kind, source] of [
+      ...(stateChanged ? [["state", currentStateSource]] : []),
+      ...(specChanged ? [["loop-spec", currentSpecSource]] : [])
+    ]) {
+      const target = path.join(evidenceDir, `${kind}-tamper-${crypto.randomUUID()}.txt`);
+      assertManagedTransactionTarget(loop, target);
+      writeTextExclusive(target, source === null ? "<missing>\n" : source);
+      evidence.push(path.relative(loop.loopDir, target).replaceAll("\\", "/"));
+    }
+    if (specChanged) writeTextAtomic(loop.specPath, expectedSpecSource);
+    if (stateChanged) writeTextAtomic(loop.statePath, expectedStateSource);
+
+    const restoredSpec = readData(loop.specPath);
+    const restoredState = readData(loop.statePath);
+    if (sha256Json(restoredSpec) !== loop.resolvedContractSha256 || sha256Json(restoredState) !== sha256Json(expectedState)) {
+      throw new Error("Runner protected-file restoration did not reproduce the frozen preflight state and contract.");
+    }
+    return { changed: true, stateChanged, specChanged, evidence };
+  });
+}
+
+export function reopenWorkPlanPart(target, {
+  partId,
+  actor,
+  reason,
+  now = new Date()
+} = {}) {
+  const loop = resolveLoop(target);
+  return withLoopStateLock(loop, () => {
+    const state = readBoundState(loop);
+    assertActiveLeaseAccess(loop, null, { state });
+    if (!loop.spec.workPlan) throw new Error("Part reopening is available only for a finite Work Plan.");
+    if (typeof partId !== "string" || partId.trim().length === 0) {
+      throw new Error("Part reopening requires a non-empty Part ID.");
+    }
+    if (typeof actor !== "string" || actor.trim().length === 0) {
+      throw new Error("Part reopening requires an explicit human actor assertion.");
+    }
+    const actorRole = normalizeRole(actor);
+    if ([
+      normalizeRole(loop.spec.handoff.worker),
+      normalizeRole(loop.spec.verification.evaluator),
+      normalizeRole(loop.spec.workPlan.completion.evaluator)
+    ].includes(actorRole)) {
+      throw new Error("Part reopening actor must differ from the worker, Part evaluator, and Goal evaluator roles.");
+    }
+    if (typeof reason !== "string" || reason.trim().length < 3) {
+      throw new Error("Part reopening requires a reason of at least three characters.");
+    }
+    if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+      throw new Error("Part resolution time must be a valid Date.");
+    }
+    const item = state.items.find((entry) => entry.id === partId);
+    if (!item) throw new Error(`Unknown Work Plan Part: ${partId}`);
+    if (!["blocked", "needs-human"].includes(item.status)) {
+      throw new Error(`Part ${partId} is ${item.status}; only blocked or needs-human Parts can be reopened.`);
+    }
+    if (!item.lastResult || item.lastResult.verdict !== item.status) {
+      throw new Error(`Part ${partId} is missing the exact blocked/human evidence required for reopening.`);
+    }
+    if (state.partResolutions.length >= 1000) {
+      throw new Error("Part resolution ledger is full; archive and migrate through a reviewed state transition.");
+    }
+    const resolution = {
+      id: crypto.randomUUID(),
+      partId,
+      fromStatus: item.status,
+      actor: actor.trim(),
+      reason: reason.trim(),
+      evidenceRunId: item.lastResult.runId,
+      evidenceRunArtifact: item.lastResult.runArtifact,
+      evidenceRunSha256: item.lastResult.runSha256,
+      resolvedAt: now.toISOString()
+    };
+    const nextState = structuredClone(state);
+    const nextItem = nextState.items.find((entry) => entry.id === partId);
+    nextItem.status = "open";
+    nextItem.artifacts = [];
+    nextItem.lastResult = null;
+    nextState.partResolutions.push(resolution);
+    const validation = validateData("state", nextState, "updated state");
+    if (!validation.ok) {
+      throw new Error(`Refusing to write invalid state: ${validation.errors.join("; ")}`);
+    }
+    assertWorkPlanStateConsistent(loop, nextState);
+    writeJson(loop.statePath, nextState);
+    return { loop: loop.spec.metadata.name, statePath: loop.statePath, partId, resolution };
+  });
+}
+
+export function resolveGoalAttention(target, {
+  actor,
+  reason,
+  now = new Date()
+} = {}) {
+  const loop = resolveLoop(target);
+  return withLoopStateLock(loop, () => {
+    const state = readBoundState(loop);
+    assertActiveLeaseAccess(loop, null, { state });
+    if (!loop.spec.workPlan) throw new Error("Goal attention resolution is available only for a finite Work Plan.");
+    if (typeof actor !== "string" || actor.trim().length === 0) {
+      throw new Error("Goal attention resolution requires an explicit human actor assertion.");
+    }
+    const actorRole = normalizeRole(actor);
+    if ([
+      normalizeRole(loop.spec.handoff.worker),
+      normalizeRole(loop.spec.verification.evaluator),
+      normalizeRole(loop.spec.workPlan.completion.evaluator)
+    ].includes(actorRole)) {
+      throw new Error("Goal attention actor must differ from the worker, Part evaluator, and Goal evaluator roles.");
+    }
+    if (typeof reason !== "string" || reason.trim().length < 3) {
+      throw new Error("Goal attention resolution requires a reason of at least three characters.");
+    }
+    if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+      throw new Error("Goal resolution time must be a valid Date.");
+    }
+    const last = state.lifecycle?.lastGoalEvaluation;
+    if (!state.paused || !last || !["blocked", "needs-human"].includes(last.verdict)) {
+      throw new Error("The finite Goal is not paused on a blocked or needs-human final evaluation.");
+    }
+    if (state.lifecycle.goalEvaluationAttempts >= loop.spec.workPlan.completion.maxAttempts) {
+      throw new Error("Final Goal evaluation attempt budget is exhausted; a reviewed contract revision is required.");
+    }
+    if (state.goalResolutions.length >= 100) {
+      throw new Error("Goal resolution ledger is full; archive and migrate through a reviewed state transition.");
+    }
+    if (state.goalResolutions.some((entry) => entry.evidenceRunId === last.runId)) {
+      throw new Error(`Goal evaluation run ${last.runId} has already been resolved.`);
+    }
+    const ledger = state.recordedRuns.find((entry) => entry.runId === last.runId);
+    if (!ledger) throw new Error("Last Goal evaluation is missing its durable recorded-run binding.");
+    const resolution = {
+      id: crypto.randomUUID(),
+      fromVerdict: last.verdict,
+      actor: actor.trim(),
+      reason: reason.trim(),
+      evidenceRunId: ledger.runId,
+      evidenceRunArtifact: ledger.artifact,
+      evidenceRunSha256: ledger.sha256,
+      resolvedAt: now.toISOString()
+    };
+    const nextState = structuredClone(state);
+    nextState.paused = false;
+    nextState.pauseReason = null;
+    nextState.goalResolutions.push(resolution);
+    const validation = validateData("state", nextState, "updated state");
+    if (!validation.ok) {
+      throw new Error(`Refusing to write invalid state: ${validation.errors.join("; ")}`);
+    }
+    assertWorkPlanStateConsistent(loop, nextState);
+    writeJson(loop.statePath, nextState);
+    return { loop: loop.spec.metadata.name, statePath: loop.statePath, resolution };
+  });
 }
 
 export function migrateLoopState(loop, { now = new Date(), allowRemoteExpiredLease = false } = {}) {
@@ -476,7 +761,8 @@ function recordRunLocked(
     runFile: requestedRunFile = null,
     allowDryRun = false,
     allowObservedOverrun = false,
-    leaseToken = null
+    leaseToken = null,
+    expectedPreStateSha256 = null
   } = {}
 ) {
   const { spec, statePath, runLogDir } = loop;
@@ -492,6 +778,12 @@ function recordRunLocked(
     throw new Error("loopctl record accepts terminal run logs only.");
   }
   const state = readBoundState(loop);
+  if (
+    expectedPreStateSha256 !== null
+    && sha256Json(state) !== expectedPreStateSha256
+  ) {
+    throw new Error("Durable state changed after Runner preflight; refusing to record against an unfrozen state.");
+  }
   assertStrategyStateConsistent(loop, state);
   let runFile = requestedRunFile || path.join(runLogDir, `${artifactStem(runLog.runId)}.json`);
   const digest = sha256Json(runLog);
@@ -531,6 +823,9 @@ function recordRunLocked(
   }
   if (priorRecord) {
     throw new Error(`State ledger references a missing immutable run artifact: ${runFile}`);
+  }
+  if (state.paused && leaseToken === null) {
+    throw new Error("Loop is paused; resume it or resolve the blocking Part before recording new work.");
   }
 
   const requiresTrustedLease = runLog.status === "dry-run" || allowObservedOverrun;
@@ -611,25 +906,100 @@ function buildRecordedRunState(loop, state, runLog, runFile, digest, budgetDate)
   budgets.runtimeMinutesToday += Number(runLog.budget?.runtimeMinutes || 0);
   budgets.estimatedUsdToday += Number(runLog.budget?.estimatedUsd || 0);
 
+  let items = mergeItems(state.items, runLog, {
+    runArtifact: path.relative(loop.loopDir, path.resolve(runFile)).replaceAll("\\", "/"),
+    runSha256: digest,
+    bindWorkPlanResults: Boolean(loop.spec.workPlan)
+  });
+  let lifecycle = state.lifecycle ? structuredClone(state.lifecycle) : undefined;
+  let paused = state.paused === true;
+  let pauseReason = state.pauseReason ?? null;
+  if (loop.spec.workPlan && runLog.goalEvaluation) {
+    const transition = applyGoalEvaluationTransition(loop, state, items, runLog);
+    items = transition.items;
+    lifecycle = transition.lifecycle;
+    paused = transition.paused;
+    pauseReason = transition.pauseReason;
+  }
+
   const nextState = {
     apiVersion: "loop-engineering/v1",
     loop: loop.spec.metadata.name,
     generation: state.generation,
     contractSha256: state.contractSha256,
     lastRunAt: runLog.finishedAt || runLog.startedAt,
-    paused: state.paused === true,
-    pauseReason: state.pauseReason ?? null,
-    items: mergeItems(state.items, runLog),
+    paused,
+    pauseReason,
+    items,
     recordedRuns: appendRunRecord(loop, state, runLog, runFile, digest),
     budgets
   };
+  if (lifecycle) nextState.lifecycle = lifecycle;
+  if (loop.spec.workPlan) {
+    nextState.partResolutions = structuredClone(state.partResolutions || []);
+    nextState.goalResolutions = structuredClone(state.goalResolutions || []);
+  }
   const evolution = updateEvolutionForRun(loop.spec, state.evolution, runLog);
   if (evolution) nextState.evolution = evolution;
   return nextState;
 }
 
+function applyGoalEvaluationTransition(loop, state, priorItems, runLog) {
+  const reference = runLog.goalEvaluation;
+  const artifactPath = resolveLoopArtifact(loop, reference.evaluator.artifact, "Goal evaluation artifact");
+  const evaluation = readData(artifactPath);
+  const attempts = state.lifecycle.goalEvaluationAttempts + 1;
+  const lifecycle = {
+    status: reference.verdict === "pass" ? "completed" : "active",
+    completedAt: reference.verdict === "pass" ? runLog.finishedAt : null,
+    goalEvaluationAttempts: attempts,
+    lastGoalEvaluation: {
+      runId: runLog.runId,
+      verdict: reference.verdict,
+      artifact: reference.evaluator.artifact,
+      sha256: reference.evaluator.sha256,
+      basisSha256: reference.basisSha256,
+      evaluatedAt: evaluation.evaluator.evaluatedAt
+    }
+  };
+  let items = priorItems.map((item) => ({ ...item, artifacts: item.artifacts ? [...item.artifacts] : [] }));
+  let paused = state.paused === true;
+  let pauseReason = state.pauseReason ?? null;
+
+  if (reference.verdict === "fail") {
+    const reopened = transitiveAffectedParts(loop.spec.workPlan.parts, evaluation.affectedParts);
+    items = items.map((item) => reopened.has(item.id)
+      ? { ...item, status: "open", retries: 0, artifacts: [], lastResult: null }
+      : item);
+  }
+  if (["blocked", "needs-human"].includes(reference.verdict)) {
+    paused = true;
+    pauseReason = `Final Goal evaluation requires attention: ${reference.summary}`;
+  }
+  if (attempts >= loop.spec.workPlan.completion.maxAttempts && reference.verdict !== "pass") {
+    paused = true;
+    pauseReason = `Final Goal evaluation attempt budget exhausted (${attempts}/${loop.spec.workPlan.completion.maxAttempts}).`;
+  }
+  return { items, lifecycle, paused, pauseReason };
+}
+
+function transitiveAffectedParts(parts, roots) {
+  const affected = new Set(roots);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const part of parts) {
+      if (!affected.has(part.id) && part.dependsOn.some((dependency) => affected.has(dependency))) {
+        affected.add(part.id);
+        changed = true;
+      }
+    }
+  }
+  return affected;
+}
+
 function appendRunRecord(loop, state, runLog, runFile, digest) {
-  return [
+  const entries = [
     ...(state.recordedRuns || []),
     {
       runId: runLog.runId,
@@ -638,7 +1008,38 @@ function appendRunRecord(loop, state, runLog, runFile, digest) {
       finishedAt: runLog.finishedAt,
       status: runLog.status
     }
-  ].slice(-1000);
+  ];
+  if (loop.spec.workPlan) return entries;
+  const limit = 1000;
+  if (entries.length <= limit) return entries;
+  const protectedIds = new Set();
+  for (const item of state.items || []) {
+    if (item.lastResult?.runId) protectedIds.add(item.lastResult.runId);
+  }
+  for (const resolution of state.partResolutions || []) {
+    protectedIds.add(resolution.evidenceRunId);
+  }
+  for (const resolution of state.goalResolutions || []) {
+    protectedIds.add(resolution.evidenceRunId);
+  }
+  if (state.lifecycle?.lastGoalEvaluation?.runId) {
+    protectedIds.add(state.lifecycle.lastGoalEvaluation.runId);
+  }
+  protectedIds.add(runLog.runId);
+  const protectedEntries = entries.filter((entry) => protectedIds.has(entry.runId));
+  if (protectedEntries.length > limit) {
+    throw new Error(`Recorded-run ledger cannot retain ${protectedEntries.length} protected Work Plan bindings within its ${limit}-entry limit.`);
+  }
+  const remaining = limit - protectedEntries.length;
+  const keepUnprotected = new Set(
+    remaining === 0
+      ? []
+      : entries
+          .filter((entry) => !protectedIds.has(entry.runId))
+          .slice(-remaining)
+          .map((entry) => entry.runId)
+  );
+  return entries.filter((entry) => protectedIds.has(entry.runId) || keepUnprotected.has(entry.runId));
 }
 
 function commitLoopTransaction(loop, operation, writes) {
@@ -1341,6 +1742,27 @@ function validateRunSemantics(loop, runLog, state, now, { allowObservedOverrun =
   assertUnique(runLog.discovered.map((item) => item.id), "discovered item IDs");
   assertUnique(runLog.results.map((item) => item.itemId), "result item IDs");
 
+  const workPlan = spec.workPlan ? deriveWorkPlan(loop, state) : null;
+  if (workPlan) {
+    if (workPlan.phase === "completed") {
+      throw new Error("Finite work plan is completed; no new run may be recorded.");
+    }
+    if (runLog.discovered.length > 0) {
+      throw new Error("Finite work-plan runs cannot discover items outside the approved fixed plan.");
+    }
+    if (workPlan.phase === "work" && runLog.status === "no-work") {
+      throw new Error("A finite work-plan run cannot report no-work while an approved Part is eligible.");
+    }
+    if (runLog.status !== "dry-run") {
+      if (workPlan.phase === "goal-evaluation" && !runLog.goalEvaluation && runLog.status !== "failed") {
+        throw new Error("All finite work-plan parts passed; the next run must contain a final Goal evaluation.");
+      }
+      if (workPlan.phase === "work" && runLog.goalEvaluation) {
+        throw new Error("A final Goal evaluation is allowed only after every work-plan part has passed.");
+      }
+    }
+  }
+
   const budgets = spec.safety.budgets;
   const itemsAllowed = Math.min(spec.discovery.maxItemsPerRun, budgets.maxItemsPerRun);
   if (!allowObservedOverrun && runLog.results.length > itemsAllowed) {
@@ -1401,6 +1823,9 @@ function validateRunSemantics(loop, runLog, state, now, { allowObservedOverrun =
 
   const stateItems = new Map(state.items.map((item) => [item.id, item]));
   const discoveredItems = new Set(runLog.discovered.map((item) => item.id));
+  const eligibleWorkPlanItems = workPlan
+    ? new Set(workPlan.eligibleParts.map((part) => part.id))
+    : null;
   for (const result of runLog.results) {
     const prior = stateItems.get(result.itemId);
     if (!prior && !discoveredItems.has(result.itemId)) {
@@ -1414,23 +1839,48 @@ function validateRunSemantics(loop, runLog, state, now, { allowObservedOverrun =
         throw new Error(`Result item "${result.itemId}" has exhausted its retry budget.`);
       }
     }
+    if (workPlan) {
+      if (!eligibleWorkPlanItems.has(result.itemId)) {
+        throw new Error(`Result item "${result.itemId}" is not eligible in the pre-run work-plan state.`);
+      }
+      const part = spec.workPlan.parts.find((entry) => entry.id === result.itemId);
+      const expectedDefinition = sha256Json(part);
+      if (result.partDefinitionSha256 !== expectedDefinition) {
+        throw new Error(`Result item "${result.itemId}" does not bind its exact work-plan part definition.`);
+      }
+      if (result.verdict === "pass") {
+        assertExpectedArtifacts(part, result.artifacts || [], `passing result for ${result.itemId}`);
+      }
+    }
     validateEvaluatorBinding(loop, result, { startedAt, finishedAt });
   }
 
+  if (workPlan) {
+    assertNewWorkPlanArtifactPathsUnique(loop, state, runLog);
+  }
+
+  if (workPlan && runLog.goalEvaluation) {
+    validateGoalEvaluationBinding(loop, state, runLog, { startedAt, finishedAt });
+  }
+
   const verdicts = runLog.results.map((result) => result.verdict);
-  if (runLog.status === "passed" && (verdicts.length === 0 || verdicts.some((verdict) => verdict !== "pass"))) {
+  if (
+    runLog.status === "passed"
+    && !runLog.goalEvaluation
+    && (verdicts.length === 0 || verdicts.some((verdict) => verdict !== "pass"))
+  ) {
     throw new Error("A passed run requires at least one result and every evaluator verdict must be pass.");
   }
-  if (runLog.status === "failed" && verdicts.length === 0 && !runLog.failure) {
+  if (runLog.status === "failed" && verdicts.length === 0 && !runLog.failure && !runLog.goalEvaluation) {
     throw new Error("A failed run with no item results must include a failure object.");
   }
-  if (runLog.status === "failed" && verdicts.length > 0 && !verdicts.includes("fail")) {
+  if (runLog.status === "failed" && verdicts.length > 0 && !verdicts.includes("fail") && !runLog.goalEvaluation) {
     throw new Error("A failed run with item results must include a fail verdict.");
   }
-  if (runLog.status === "blocked" && !verdicts.includes("blocked")) {
+  if (runLog.status === "blocked" && !verdicts.includes("blocked") && !runLog.goalEvaluation) {
     throw new Error("A blocked run must include a blocked verdict.");
   }
-  if (runLog.status === "needs-human" && !verdicts.includes("needs-human")) {
+  if (runLog.status === "needs-human" && !verdicts.includes("needs-human") && !runLog.goalEvaluation) {
     throw new Error("A needs-human run must include a needs-human verdict.");
   }
   if (["no-work", "dry-run"].includes(runLog.status) && runLog.results.length !== 0) {
@@ -1438,6 +1888,17 @@ function validateRunSemantics(loop, runLog, state, now, { allowObservedOverrun =
   }
   if (runLog.status === "budget-exceeded" && (!allowObservedOverrun || !runLog.failure)) {
     throw new Error("A budget-exceeded run must be recorded by the trusted Runner with failure evidence.");
+  }
+  if (runLog.goalEvaluation) {
+    const expectedStatus = {
+      pass: "passed",
+      fail: "failed",
+      blocked: "blocked",
+      "needs-human": "needs-human"
+    }[runLog.goalEvaluation.verdict];
+    if (runLog.status !== expectedStatus || runLog.results.length !== 0) {
+      throw new Error(`Goal evaluation verdict ${runLog.goalEvaluation.verdict} requires run status ${expectedStatus} and no part results.`);
+    }
   }
 }
 
@@ -1448,6 +1909,117 @@ function validateRunReplayEvidence(loop, runLog) {
   for (const result of runLog.results) {
     validateEvaluatorBinding(loop, result, { startedAt, finishedAt });
   }
+  if (runLog.goalEvaluation) {
+    readGoalEvaluationArtifact(loop, runLog, { startedAt, finishedAt }, runLog.goalEvaluation.basisSha256);
+  }
+}
+
+function validateGoalEvaluationBinding(loop, state, runLog, { startedAt, finishedAt }) {
+  const expectedBasis = goalEvaluationBasisSha256(loop, state);
+  const reference = runLog.goalEvaluation;
+  if (reference.basisSha256 !== expectedBasis) {
+    throw new Error("Goal evaluation does not bind the exact current contract, passed parts, and artifacts.");
+  }
+  const evaluation = readGoalEvaluationArtifact(
+    loop,
+    runLog,
+    { startedAt, finishedAt },
+    expectedBasis
+  );
+  const partIds = new Set(loop.spec.workPlan.parts.map((part) => part.id));
+  for (const partId of evaluation.affectedParts) {
+    if (!partIds.has(partId)) throw new Error(`Goal evaluation references unknown affected part ${partId}.`);
+  }
+  if (evaluation.verdict === "pass") {
+    if (evaluation.criteria.some((criterion) => criterion.verdict !== "pass")) {
+      throw new Error("A passing Goal evaluation requires every Goal criterion to pass.");
+    }
+    if (evaluation.nextAction !== "complete" || evaluation.affectedParts.length !== 0) {
+      throw new Error("A passing Goal evaluation must request complete and cannot name affected parts.");
+    }
+  } else if (evaluation.verdict === "fail") {
+    const failedStatements = new Set(
+      evaluation.criteria
+        .filter((criterion) => criterion.verdict === "fail")
+        .map((criterion) => criterion.statement)
+    );
+    if (failedStatements.size === 0) {
+      throw new Error("A failed Goal evaluation must identify at least one failed Goal criterion.");
+    }
+    if (evaluation.affectedParts.length === 0 || !["retry", "resume-parts"].includes(evaluation.nextAction)) {
+      throw new Error("A failed Goal evaluation must name affected parts and request retry or resume-parts.");
+    }
+    const affected = evaluation.affectedParts.map((partId) => (
+      loop.spec.workPlan.parts.find((part) => part.id === partId)
+    ));
+    for (const statement of failedStatements) {
+      if (!affected.some((part) => part.goalCriteria.includes(statement))) {
+        throw new Error(`Failed Goal criterion is not traced to an affected Part: ${statement}`);
+      }
+    }
+    for (const part of affected) {
+      if (!part.goalCriteria.some((statement) => failedStatements.has(statement))) {
+        throw new Error(`Affected Part ${part.id} is not traced to any failed Goal criterion.`);
+      }
+    }
+  } else if (evaluation.nextAction !== "ask-human") {
+    throw new Error(`${evaluation.verdict} Goal evaluation must request ask-human.`);
+  }
+  return evaluation;
+}
+
+function readGoalEvaluationArtifact(loop, runLog, { startedAt, finishedAt }, expectedBasis) {
+  const reference = runLog.goalEvaluation;
+  const artifactPath = resolveLoopArtifact(loop, reference.evaluator.artifact, "Goal evaluation artifact");
+  const raw = fs.readFileSync(artifactPath);
+  if (sha256Bytes(raw) !== reference.evaluator.sha256) {
+    throw new Error("Goal evaluation artifact digest does not match the run log.");
+  }
+  const evaluation = readData(artifactPath);
+  const validation = validateData("goal-evaluation", evaluation, artifactPath);
+  if (!validation.ok) {
+    throw new Error(`Invalid Goal evaluation artifact ${artifactPath}: ${validation.errors.join("; ")}`);
+  }
+  if (
+    evaluation.loop !== loop.spec.metadata.name
+    || evaluation.verdict !== reference.verdict
+    || evaluation.basisSha256 !== reference.basisSha256
+    || evaluation.basisSha256 !== expectedBasis
+    || evaluation.evaluator.contextId !== reference.evaluator.contextId
+  ) {
+    throw new Error("Goal evaluation artifact identity, verdict, context, or basis does not match the run log.");
+  }
+  if (normalizeRole(evaluation.evaluator.identity) === normalizeRole(loop.spec.handoff.worker)) {
+    throw new Error("Goal evaluator identity must differ from the worker identity.");
+  }
+  if (normalizeRole(evaluation.evaluator.identity) !== normalizeRole(loop.spec.workPlan.completion.evaluator)) {
+    throw new Error("Goal evaluator identity must match workPlan.completion.evaluator.");
+  }
+  const evaluatedAt = parseTimestamp(evaluation.evaluator.evaluatedAt, "goal evaluator.evaluatedAt");
+  if (evaluatedAt < startedAt - 5 * 60_000 || evaluatedAt > finishedAt + 5 * 60_000) {
+    throw new Error("Goal evaluator timestamp is not bound to the recorded run window.");
+  }
+  const expectedStatements = loop.spec.goal.acceptanceCriteria;
+  const actualStatements = evaluation.criteria.map((criterion) => criterion.statement);
+  assertUnique(actualStatements, "Goal evaluation criterion statements");
+  if (!sameStringSet(expectedStatements, actualStatements)) {
+    throw new Error("Goal evaluation must cover every exact approved Goal acceptance criterion statement.");
+  }
+  assertUniqueEvidenceCommands(evaluation.evidence, "Goal evaluation artifact");
+  if (evaluation.verdict === "pass") {
+    for (const required of loop.spec.workPlan.completion.requiredEvidence) {
+      if (!evaluation.evidence.some((evidence) => evidence.type === required)) {
+        throw new Error(`Passing Goal evaluation is missing required evidence "${required}".`);
+      }
+    }
+    for (const command of loop.spec.workPlan.completion.commands) {
+      const evidence = evaluation.evidence.find((item) => item.command === command);
+      if (!evidence || evidence.exitCode !== 0) {
+        throw new Error(`Passing Goal evaluation lacks successful command evidence: ${command}`);
+      }
+    }
+  }
+  return evaluation;
 }
 
 function validateEvaluatorBinding(loop, result, { startedAt, finishedAt }) {
@@ -1487,17 +2059,117 @@ function validateEvaluatorBinding(loop, result, { startedAt, finishedAt }) {
     throw new Error(`Evaluator identity must match verification.evaluator for ${result.itemId}.`);
   }
   assertUniqueEvidenceCommands(evaluator.evidence, `evaluator artifact for ${result.itemId}`);
+  const workPlanPart = loop.spec.workPlan?.parts.find((part) => part.id === result.itemId) || null;
+  if (workPlanPart) {
+    const definitionSha256 = sha256Json(workPlanPart);
+    if (
+      result.partDefinitionSha256 !== definitionSha256
+      || evaluator.partDefinitionSha256 !== definitionSha256
+    ) {
+      throw new Error(`Evaluator artifact does not bind the exact work-plan definition for ${result.itemId}.`);
+    }
+    if (result.verdict === "pass") {
+      const expectedCriteria = workPlanPart.acceptanceCriteria.map((criterion) => criterion.id);
+      const actualCriteria = (evaluator.criteria || []).map((criterion) => criterion.id);
+      assertUnique(actualCriteria, `criterion IDs for evaluator artifact ${result.itemId}`);
+      if (!sameStringSet(expectedCriteria, actualCriteria)) {
+        throw new Error(`Passing evaluator artifact must cover every exact acceptance criterion for ${result.itemId}.`);
+      }
+      if (evaluator.criteria.some((criterion) => criterion.verdict !== "pass")) {
+        throw new Error(`Passing evaluator artifact contains a failed acceptance criterion for ${result.itemId}.`);
+      }
+      for (const criterion of workPlanPart.acceptanceCriteria) {
+        for (const required of criterion.evidence) {
+          if (!evaluator.evidence.some((evidence) => evidence.type === required)) {
+            throw new Error(`Passing evaluator artifact is missing part evidence "${required}" for ${result.itemId}.`);
+          }
+        }
+      }
+      assertExpectedArtifacts(workPlanPart, result.artifacts || [], `passing result for ${result.itemId}`);
+      assertExpectedArtifacts(workPlanPart, evaluator.artifacts || [], `evaluator artifact for ${result.itemId}`);
+      if (!sameArtifactBindings(result.artifacts || [], evaluator.artifacts || [])) {
+        throw new Error(`Passing result and evaluator artifact disagree on accepted artifacts for ${result.itemId}.`);
+      }
+      validateArtifactFiles(loop, result.artifacts || [], `passing result for ${result.itemId}`);
+    }
+  }
   if (result.verdict === "pass") {
-    for (const required of loop.spec.verification.requiredEvidence) {
+    const effectiveVerification = workPlanPart?.verification || loop.spec.verification;
+    for (const required of effectiveVerification.requiredEvidence) {
       if (!evaluator.evidence.some((evidence) => evidence.type === required)) {
         throw new Error(`Passing evaluator artifact is missing required evidence "${required}" for ${result.itemId}.`);
       }
     }
-    for (const command of loop.spec.verification.commands) {
+    for (const command of effectiveVerification.commands) {
       const evidence = evaluator.evidence.find((item) => item.command === command);
       if (!evidence || evidence.exitCode !== 0) {
         throw new Error(`Passing evaluator artifact lacks successful command evidence: ${command}`);
       }
+    }
+  }
+}
+
+function assertExpectedArtifacts(part, artifacts, label) {
+  const expectedIds = part.expectedArtifacts.map((artifact) => artifact.id);
+  const actualIds = artifacts.map((artifact) => artifact.id);
+  assertUnique(actualIds, `artifact IDs in ${label}`);
+  if (!sameStringSet(expectedIds, actualIds)) {
+    throw new Error(`${label} must bind every exact expected artifact for work-plan part ${part.id}.`);
+  }
+}
+
+function sameArtifactBindings(left, right) {
+  if (left.length !== right.length) return false;
+  const normalize = (values) => [...values]
+    .map((value) => ({ id: value.id, reference: value.reference, sha256: value.sha256 }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return sha256Json(normalize(left)) === sha256Json(normalize(right));
+}
+
+function validateArtifactFiles(loop, artifacts, label) {
+  const resolvedPaths = [];
+  for (const artifact of artifacts) {
+    const artifactPath = resolveLoopArtifact(
+      loop,
+      artifact.reference,
+      `${label} artifact "${artifact.id}"`
+    );
+    const digest = sha256Bytes(fs.readFileSync(artifactPath));
+    if (digest !== artifact.sha256) {
+      throw new Error(`${label} artifact "${artifact.id}" digest does not match its referenced file.`);
+    }
+    resolvedPaths.push(artifactPath);
+  }
+  assertUnique(resolvedPaths, `resolved artifact files in ${label}`);
+}
+
+function assertNewWorkPlanArtifactPathsUnique(loop, state, runLog) {
+  const seen = new Map();
+  const remember = (artifact, label) => {
+    const artifactPath = resolveLoopArtifact(loop, artifact.reference, `${label} artifact "${artifact.id}"`);
+    const prior = seen.get(artifactPath);
+    if (prior) {
+      throw new Error(
+        `${label} artifact "${artifact.id}" reuses accepted snapshot ${artifactPath} already bound by ${prior}.`
+      );
+    }
+    seen.set(artifactPath, `${label} artifact "${artifact.id}"`);
+  };
+
+  for (const ledger of state.recordedRuns || []) {
+    const runPath = resolveLoopArtifact(loop, ledger.artifact, `recorded finite run ${ledger.runId}`);
+    const historical = readData(runPath);
+    for (const result of historical.results || []) {
+      if (result.verdict !== "pass") continue;
+      for (const artifact of result.artifacts || []) {
+        remember(artifact, `historical run ${ledger.runId}`);
+      }
+    }
+  }
+  for (const result of runLog.results) {
+    if (result.verdict !== "pass") continue;
+    for (const artifact of result.artifacts || []) {
+      remember(artifact, `new run ${runLog.runId}`);
     }
   }
 }
@@ -1528,6 +2200,20 @@ function assertUnique(values, label) {
 
 function normalizeRole(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function assertHumanResolutionActor(loop, actor, label) {
+  const actorRole = normalizeRole(actor);
+  if (
+    !actorRole
+    || [
+      normalizeRole(loop.spec.handoff.worker),
+      normalizeRole(loop.spec.verification.evaluator),
+      normalizeRole(loop.spec.workPlan?.completion.evaluator)
+    ].includes(actorRole)
+  ) {
+    throw new Error(`${label} actor must be an explicit role distinct from the worker, Part evaluator, and Goal evaluator.`);
+  }
 }
 
 export function recordExperiment(loop, experiment, options = {}) {
@@ -2163,6 +2849,448 @@ function assertStateBinding(loop, state) {
   }
 }
 
+function assertWorkPlanStateConsistent(loop, state) {
+  const plan = loop.spec.workPlan;
+  if (!plan) {
+    if (
+      state.lifecycle !== undefined
+      || state.partResolutions !== undefined
+      || state.goalResolutions !== undefined
+    ) {
+      throw new Error("Loop state has a finite lifecycle but loop.yaml has no workPlan.");
+    }
+    return;
+  }
+  if (!state.lifecycle) {
+    throw new Error("Finite work-plan state is missing lifecycle metadata; reinitialize the loop explicitly.");
+  }
+  if (!Array.isArray(state.partResolutions)) {
+    throw new Error("Finite work-plan state is missing its audited Part resolution ledger; reinitialize the loop explicitly.");
+  }
+  if (!Array.isArray(state.goalResolutions)) {
+    throw new Error("Finite work-plan state is missing its audited Goal resolution ledger; reinitialize the loop explicitly.");
+  }
+
+  const expectedIds = plan.parts.map((part) => part.id);
+  const actualIds = state.items.map((item) => item.id);
+  if (
+    actualIds.length !== expectedIds.length
+    || actualIds.some((id, index) => id !== expectedIds[index])
+  ) {
+    throw new Error("Finite work-plan state items must exactly match loop.yaml workPlan.parts in contract order.");
+  }
+
+  const stateById = new Map(state.items.map((item) => [item.id, item]));
+  for (const part of plan.parts) {
+    const item = stateById.get(part.id);
+    const artifacts = item.artifacts || [];
+    assertUnique(artifacts.map((artifact) => artifact.id), `artifact IDs for work-plan part ${part.id}`);
+    if (item.status === "in-progress") {
+      throw new Error(`Finite work-plan part ${part.id} cannot persist an uncommitted in-progress status.`);
+    }
+    if (item.status === "open") {
+      if (item.lastResult !== null) {
+        throw new Error(`Open work-plan part ${part.id} cannot retain a terminal result binding.`);
+      }
+    } else {
+      if (!item.lastResult) {
+        throw new Error(`Terminal work-plan part ${part.id} is missing its immutable run/evaluator binding.`);
+      }
+      const expectedStatus = VERDICT_TO_STATUS.get(item.lastResult.verdict);
+      if (expectedStatus !== item.status) {
+        throw new Error(`Work-plan part ${part.id} status does not match its last result verdict.`);
+      }
+      const bound = readBoundWorkPlanResult(loop, state, part, item.lastResult, `work-plan part ${part.id}`);
+      if (item.status === "passed" && !sameArtifactBindings(artifacts, bound.result.artifacts || [])) {
+        throw new Error(`Persisted artifacts for work-plan part ${part.id} differ from its immutable passing run.`);
+      }
+    }
+    if (item.status === "passed") {
+      assertExpectedArtifacts(part, artifacts, `persisted part ${part.id}`);
+    } else if (artifacts.length > 0) {
+      throw new Error(`Non-passed work-plan part ${part.id} cannot retain accepted artifacts.`);
+    }
+  }
+
+  const resolutionIds = state.partResolutions.map((entry) => entry.id);
+  assertUnique(resolutionIds, "work-plan Part resolution IDs");
+  const resolvedEvidence = state.partResolutions.map((entry) => `${entry.partId}:${entry.evidenceRunId}`);
+  assertUnique(resolvedEvidence, "work-plan Part resolution evidence bindings");
+  for (const resolution of state.partResolutions) {
+    const part = plan.parts.find((entry) => entry.id === resolution.partId);
+    if (!part) throw new Error(`Part resolution references unknown work-plan part ${resolution.partId}.`);
+    assertHumanResolutionActor(loop, resolution.actor, `Part resolution ${resolution.id}`);
+    const bound = readBoundWorkPlanResult(loop, state, part, {
+      runId: resolution.evidenceRunId,
+      runArtifact: resolution.evidenceRunArtifact,
+      runSha256: resolution.evidenceRunSha256,
+      verdict: resolution.fromStatus,
+      partDefinitionSha256: sha256Json(part),
+      evaluatorSha256: null
+    }, `Part resolution ${resolution.id}`, { requireEvaluatorSha: false });
+    if (bound.result.verdict !== resolution.fromStatus) {
+      throw new Error(`Part resolution ${resolution.id} does not bind a matching blocked/human run.`);
+    }
+    const resolvedAt = parseStateUtcTimestamp(resolution.resolvedAt, `partResolutions[${resolution.id}].resolvedAt`);
+    const runFinishedAt = parseStateUtcTimestamp(bound.run.finishedAt, `run ${bound.run.runId}.finishedAt`);
+    if (resolvedAt < runFinishedAt) {
+      throw new Error(`Part resolution ${resolution.id} predates its evidence run.`);
+    }
+  }
+
+  assertUnique(state.goalResolutions.map((entry) => entry.id), "finite Goal resolution IDs");
+  assertUnique(state.goalResolutions.map((entry) => entry.evidenceRunId), "finite Goal resolution run bindings");
+  for (const resolution of state.goalResolutions) {
+    assertHumanResolutionActor(loop, resolution.actor, `Goal resolution ${resolution.id}`);
+    const ledger = state.recordedRuns.find((entry) => entry.runId === resolution.evidenceRunId);
+    if (
+      !ledger
+      || ledger.sha256 !== resolution.evidenceRunSha256
+      || path.resolve(loop.loopDir, ledger.artifact) !== path.resolve(loop.loopDir, resolution.evidenceRunArtifact)
+    ) {
+      throw new Error(`Goal resolution ${resolution.id} is not anchored by the durable recorded-run ledger.`);
+    }
+    const runPath = resolveLoopArtifact(loop, resolution.evidenceRunArtifact, `Goal resolution ${resolution.id} run artifact`);
+    const run = readData(runPath);
+    const validation = validateData("run-log", run, runPath);
+    if (
+      !validation.ok
+      || sha256Json(run) !== resolution.evidenceRunSha256
+      || run.runId !== resolution.evidenceRunId
+      || run.status !== ledger.status
+      || run.finishedAt !== ledger.finishedAt
+      || run.goalEvaluation?.verdict !== resolution.fromVerdict
+    ) {
+      throw new Error(`Goal resolution ${resolution.id} does not match its immutable blocked/human Goal run.`);
+    }
+    const goalEvaluation = readGoalEvaluationArtifact(
+      loop,
+      run,
+      {
+        startedAt: parseTimestamp(run.startedAt, `Goal resolution ${resolution.id} run.startedAt`),
+        finishedAt: parseTimestamp(run.finishedAt, `Goal resolution ${resolution.id} run.finishedAt`)
+      },
+      run.goalEvaluation.basisSha256
+    );
+    if (goalEvaluation.verdict !== resolution.fromVerdict || goalEvaluation.nextAction !== "ask-human") {
+      throw new Error(`Goal resolution ${resolution.id} does not bind an exact blocked/human Goal decision.`);
+    }
+    const resolvedAt = parseStateUtcTimestamp(resolution.resolvedAt, `goalResolutions[${resolution.id}].resolvedAt`);
+    const runFinishedAt = parseStateUtcTimestamp(run.finishedAt, `run ${run.runId}.finishedAt`);
+    if (resolvedAt < runFinishedAt) {
+      throw new Error(`Goal resolution ${resolution.id} predates its evidence run.`);
+    }
+  }
+
+  const lifecycle = state.lifecycle;
+  if (lifecycle.status === "active" && lifecycle.completedAt !== null) {
+    throw new Error("Active finite work-plan state cannot have completedAt.");
+  }
+  if (lifecycle.status === "completed") {
+    if (!lifecycle.completedAt) throw new Error("Completed finite work-plan state requires completedAt.");
+    parseStateUtcTimestamp(lifecycle.completedAt, "lifecycle.completedAt");
+    if (!plan.parts.every((part) => stateById.get(part.id).status === "passed")) {
+      throw new Error("Completed finite work-plan state requires every part to remain passed.");
+    }
+    if (!lifecycle.lastGoalEvaluation || lifecycle.lastGoalEvaluation.verdict !== "pass") {
+      throw new Error("Completed finite work-plan state requires a passing final Goal evaluation.");
+    }
+    const expectedBasis = goalEvaluationBasisSha256(loop, state);
+    if (lifecycle.lastGoalEvaluation.basisSha256 !== expectedBasis) {
+      throw new Error("Completed finite work-plan state Goal evaluation basis no longer matches its parts and artifacts.");
+    }
+  } else if (lifecycle.lastGoalEvaluation?.verdict === "pass") {
+    throw new Error("A passing final Goal evaluation must transition finite work-plan state to completed.");
+  }
+
+  if (lifecycle.lastGoalEvaluation) {
+    const last = lifecycle.lastGoalEvaluation;
+    const ledger = state.recordedRuns.find((entry) => entry.runId === last.runId);
+    if (!ledger) throw new Error("Last Goal evaluation is missing its durable recorded-run binding.");
+    const runPath = resolveLoopArtifact(loop, ledger.artifact, "last Goal evaluation run artifact");
+    const run = readData(runPath);
+    if (
+      sha256Json(run) !== ledger.sha256
+      || run.runId !== last.runId
+      || run.status !== ledger.status
+      || run.finishedAt !== ledger.finishedAt
+      || run.goalEvaluation?.verdict !== last.verdict
+      || run.goalEvaluation?.basisSha256 !== last.basisSha256
+      || run.goalEvaluation?.evaluator.artifact !== last.artifact
+      || run.goalEvaluation?.evaluator.sha256 !== last.sha256
+    ) {
+      throw new Error("Last Goal evaluation does not match its immutable recorded run.");
+    }
+    const artifact = readGoalEvaluationArtifact(
+      loop,
+      run,
+      {
+        startedAt: parseTimestamp(run.startedAt, "last Goal evaluation run.startedAt"),
+        finishedAt: parseTimestamp(run.finishedAt, "last Goal evaluation run.finishedAt")
+      },
+      last.basisSha256
+    );
+    if (artifact.evaluator.evaluatedAt !== last.evaluatedAt) {
+      throw new Error("Last Goal evaluation artifact does not match durable lifecycle state.");
+    }
+  }
+
+  assertDerivedWorkPlanState(loop, state);
+}
+
+function assertDerivedWorkPlanState(loop, state) {
+  const plan = loop.spec.workPlan;
+  const items = plan.parts.map((part) => ({
+    id: part.id,
+    status: "open",
+    retries: 0,
+    source: "work-plan",
+    summary: part.title,
+    artifacts: [],
+    lastResult: null
+  }));
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const lifecycle = {
+    status: "active",
+    completedAt: null,
+    goalEvaluationAttempts: 0,
+    lastGoalEvaluation: null
+  };
+  const acceptedSnapshots = new Map();
+  const events = [];
+
+  for (const [index, ledger] of state.recordedRuns.entries()) {
+    const runPath = resolveLoopArtifact(loop, ledger.artifact, `recorded finite run ${ledger.runId}`);
+    const run = readData(runPath);
+    const validation = validateData("run-log", run, runPath);
+    if (
+      !validation.ok
+      || sha256Json(run) !== ledger.sha256
+      || run.runId !== ledger.runId
+      || run.status !== ledger.status
+      || run.finishedAt !== ledger.finishedAt
+      || run.loop !== loop.spec.metadata.name
+    ) {
+      throw new Error(`Finite run ledger entry ${ledger.runId} does not match its immutable run artifact.`);
+    }
+    validateRunReplayEvidence(loop, run);
+    events.push({
+      kind: "run",
+      at: parseTimestamp(run.finishedAt, `finite run ${run.runId}.finishedAt`),
+      priority: 0,
+      index,
+      ledger,
+      run
+    });
+  }
+  for (const [index, resolution] of state.partResolutions.entries()) {
+    events.push({
+      kind: "part-resolution",
+      at: parseStateUtcTimestamp(resolution.resolvedAt, `partResolutions[${resolution.id}].resolvedAt`),
+      priority: 1,
+      index,
+      resolution
+    });
+  }
+  events.sort((left, right) => (
+    left.at - right.at
+    || left.priority - right.priority
+    || left.index - right.index
+  ));
+
+  for (const event of events) {
+    if (event.kind === "part-resolution") {
+      const resolution = event.resolution;
+      const item = byId.get(resolution.partId);
+      if (
+        !item
+        || item.status !== resolution.fromStatus
+        || item.lastResult?.runId !== resolution.evidenceRunId
+        || item.lastResult?.runArtifact !== resolution.evidenceRunArtifact
+        || item.lastResult?.runSha256 !== resolution.evidenceRunSha256
+      ) {
+        throw new Error(`Part resolution ${resolution.id} is not the next causal event for its blocked/human Part.`);
+      }
+      item.status = "open";
+      item.artifacts = [];
+      item.lastResult = null;
+      continue;
+    }
+
+    const { run, ledger } = event;
+    if (lifecycle.status === "completed" && run.status !== "dry-run") {
+      throw new Error(`Finite run ${run.runId} occurs after the lifecycle was completed.`);
+    }
+    const preRunStatus = new Map(items.map((item) => [item.id, item.status]));
+    for (const result of run.results) {
+      const part = plan.parts.find((entry) => entry.id === result.itemId);
+      const item = byId.get(result.itemId);
+      if (!part || !item || !["open", "failed"].includes(preRunStatus.get(result.itemId))) {
+        throw new Error(`Finite run ${run.runId} attempts Part ${result.itemId} without a causally eligible state.`);
+      }
+      if (!part.dependsOn.every((dependency) => preRunStatus.get(dependency) === "passed")) {
+        throw new Error(`Finite run ${run.runId} attempts locked Part ${result.itemId}.`);
+      }
+      if (
+        preRunStatus.get(result.itemId) === "failed"
+        && item.retries >= loop.spec.safety.retries.maxRetriesPerItem
+      ) {
+        throw new Error(`Finite run ${run.runId} exceeds the retry budget for Part ${result.itemId}.`);
+      }
+      const wasFailed = item.status === "failed";
+      item.status = VERDICT_TO_STATUS.get(result.verdict);
+      if (result.verdict === "fail" && wasFailed) item.retries += 1;
+      if (result.summary) item.summary = result.summary;
+      item.artifacts = result.verdict === "pass"
+        ? (result.artifacts || []).map((artifact) => ({ ...artifact }))
+        : [];
+      if (result.verdict === "pass") {
+        for (const artifact of result.artifacts || []) {
+          const artifactPath = resolveLoopArtifact(
+            loop,
+            artifact.reference,
+            `finite run ${run.runId} artifact "${artifact.id}"`
+          );
+          const prior = acceptedSnapshots.get(artifactPath);
+          if (prior) {
+            throw new Error(
+              `Finite run ${run.runId} reuses accepted snapshot ${artifactPath} already bound by ${prior}.`
+            );
+          }
+          acceptedSnapshots.set(artifactPath, `${run.runId}:${artifact.id}`);
+        }
+      }
+      item.lastResult = {
+        runId: run.runId,
+        runArtifact: ledger.artifact,
+        runSha256: ledger.sha256,
+        verdict: result.verdict,
+        partDefinitionSha256: result.partDefinitionSha256,
+        evaluatorSha256: result.evaluator.sha256
+      };
+    }
+
+    if (run.goalEvaluation) {
+      if (!items.every((item) => item.status === "passed")) {
+        throw new Error(`Finite Goal run ${run.runId} occurs before every Part passed.`);
+      }
+      const expectedBasis = goalEvaluationBasisSha256(loop, {
+        contractSha256: state.contractSha256,
+        items
+      });
+      if (run.goalEvaluation.basisSha256 !== expectedBasis) {
+        throw new Error(`Finite Goal run ${run.runId} does not bind the replayed Part state.`);
+      }
+      const evaluation = readGoalEvaluationArtifact(
+        loop,
+        run,
+        {
+          startedAt: parseTimestamp(run.startedAt, `finite Goal run ${run.runId}.startedAt`),
+          finishedAt: parseTimestamp(run.finishedAt, `finite Goal run ${run.runId}.finishedAt`)
+        },
+        expectedBasis
+      );
+      lifecycle.goalEvaluationAttempts += 1;
+      lifecycle.status = run.goalEvaluation.verdict === "pass" ? "completed" : "active";
+      lifecycle.completedAt = run.goalEvaluation.verdict === "pass" ? run.finishedAt : null;
+      lifecycle.lastGoalEvaluation = {
+        runId: run.runId,
+        verdict: run.goalEvaluation.verdict,
+        artifact: run.goalEvaluation.evaluator.artifact,
+        sha256: run.goalEvaluation.evaluator.sha256,
+        basisSha256: run.goalEvaluation.basisSha256,
+        evaluatedAt: evaluation.evaluator.evaluatedAt
+      };
+      if (run.goalEvaluation.verdict === "fail") {
+        const reopened = transitiveAffectedParts(plan.parts, evaluation.affectedParts);
+        for (const item of items) {
+          if (!reopened.has(item.id)) continue;
+          item.status = "open";
+          item.retries = 0;
+          item.artifacts = [];
+          item.lastResult = null;
+        }
+      }
+    }
+  }
+
+  if (sha256Json(items) !== sha256Json(state.items)) {
+    throw new Error("Finite Work Plan item state does not match replay of its immutable runs and audited resolutions.");
+  }
+  if (sha256Json(lifecycle) !== sha256Json(state.lifecycle)) {
+    throw new Error("Finite lifecycle counters or Goal state do not match replay of immutable Goal runs.");
+  }
+  const lastGoal = lifecycle.lastGoalEvaluation;
+  const lastGoalResolved = lastGoal && state.goalResolutions.some(
+    (resolution) => resolution.evidenceRunId === lastGoal.runId
+  );
+  if (
+    lastGoal
+    && ["blocked", "needs-human"].includes(lastGoal.verdict)
+    && !lastGoalResolved
+    && state.paused !== true
+  ) {
+    throw new Error("Unresolved blocked/human Goal evidence requires the finite Loop to remain paused.");
+  }
+  if (
+    lifecycle.goalEvaluationAttempts >= plan.completion.maxAttempts
+    && lastGoal?.verdict !== "pass"
+    && state.paused !== true
+  ) {
+    throw new Error("Exhausted final Goal evaluation attempts require the finite Loop to remain paused.");
+  }
+}
+
+function readBoundWorkPlanResult(
+  loop,
+  state,
+  part,
+  binding,
+  label,
+  { requireEvaluatorSha = true } = {}
+) {
+  if (binding.partDefinitionSha256 !== sha256Json(part)) {
+    throw new Error(`${label} does not bind the exact approved Part definition.`);
+  }
+  const ledger = (state.recordedRuns || []).find((entry) => entry.runId === binding.runId);
+  if (
+    !ledger
+    || ledger.sha256 !== binding.runSha256
+    || path.resolve(loop.loopDir, ledger.artifact) !== path.resolve(loop.loopDir, binding.runArtifact)
+  ) {
+    throw new Error(`${label} is not anchored by the durable recorded-run ledger.`);
+  }
+  const runPath = resolveLoopArtifact(loop, binding.runArtifact, `${label} run artifact`);
+  const run = readData(runPath);
+  const validation = validateData("run-log", run, runPath);
+  if (!validation.ok) {
+    throw new Error(`${label} references an invalid run log: ${validation.errors.join("; ")}`);
+  }
+  if (
+    run.loop !== loop.spec.metadata.name
+    || run.runId !== binding.runId
+    || run.status !== ledger.status
+    || run.finishedAt !== ledger.finishedAt
+    || sha256Json(run) !== binding.runSha256
+  ) {
+    throw new Error(`${label} run identity or SHA-256 binding does not match its immutable artifact.`);
+  }
+  const result = run.results.find((entry) => entry.itemId === part.id);
+  if (
+    !result
+    || result.verdict !== binding.verdict
+    || result.partDefinitionSha256 !== binding.partDefinitionSha256
+    || (requireEvaluatorSha && result.evaluator.sha256 !== binding.evaluatorSha256)
+  ) {
+    throw new Error(`${label} does not match the exact Part result in its immutable run.`);
+  }
+  validateEvaluatorBinding(loop, result, {
+    startedAt: parseTimestamp(run.startedAt, `${label} run.startedAt`),
+    finishedAt: parseTimestamp(run.finishedAt, `${label} run.finishedAt`)
+  });
+  return { run, result, runPath };
+}
+
 function assertStrategyStateConsistent(loop, state) {
   if (!loop.spec.evolution?.enabled) return;
   if (!loop.strategyPath || !fs.existsSync(loop.strategyPath)) {
@@ -2212,7 +3340,11 @@ function sameStringSet(left, right) {
   return left.length === right.length && [...left].sort().every((value, index) => value === [...right].sort()[index]);
 }
 
-function mergeItems(existing, runLog) {
+function mergeItems(existing, runLog, {
+  runArtifact = null,
+  runSha256 = null,
+  bindWorkPlanResults = false
+} = {}) {
   const byId = new Map(existing.map((item) => [item.id, { ...item }]));
 
   for (const result of runLog.results) {
@@ -2226,6 +3358,21 @@ function mergeItems(existing, runLog) {
       }
       if (result.summary) {
         prior.summary = result.summary;
+      }
+      if (result.verdict === "pass" && Array.isArray(result.artifacts)) {
+        prior.artifacts = result.artifacts.map((artifact) => ({ ...artifact }));
+      } else if (result.verdict !== "pass" && prior.artifacts) {
+        prior.artifacts = [];
+      }
+      if (bindWorkPlanResults) {
+        prior.lastResult = {
+          runId: runLog.runId,
+          runArtifact,
+          runSha256,
+          verdict: result.verdict,
+          partDefinitionSha256: result.partDefinitionSha256,
+          evaluatorSha256: result.evaluator.sha256
+        };
       }
       byId.set(result.itemId, prior);
     } else {

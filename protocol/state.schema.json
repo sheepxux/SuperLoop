@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/state.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/state.schema.json",
   "title": "Loop State",
   "type": "object",
   "additionalProperties": false,
@@ -31,6 +31,52 @@
     "pauseReason": {
       "type": ["string", "null"]
     },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "completedAt", "goalEvaluationAttempts", "lastGoalEvaluation"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["active", "completed"]
+        },
+        "completedAt": {
+          "type": ["string", "null"]
+        },
+        "goalEvaluationAttempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lastGoalEvaluation": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "runId",
+                "verdict",
+                "artifact",
+                "sha256",
+                "basisSha256",
+                "evaluatedAt"
+              ],
+              "properties": {
+                "runId": { "type": "string", "minLength": 1 },
+                "verdict": {
+                  "type": "string",
+                  "enum": ["pass", "fail", "blocked", "needs-human"]
+                },
+                "artifact": { "type": "string", "minLength": 1 },
+                "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                "basisSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                "evaluatedAt": { "type": "string", "minLength": 20 }
+              }
+            }
+          ]
+        }
+      }
+    },
     "items": {
       "type": "array",
       "items": {
@@ -60,13 +106,94 @@
             "items": {
               "type": "string"
             }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifactBinding"
+            }
+          },
+          "lastResult": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["runId", "runArtifact", "runSha256", "verdict", "partDefinitionSha256", "evaluatorSha256"],
+                "properties": {
+                  "runId": { "type": "string", "minLength": 1 },
+                  "runArtifact": { "type": "string", "minLength": 1 },
+                  "runSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "verdict": { "type": "string", "enum": ["pass", "fail", "blocked", "needs-human"] },
+                  "partDefinitionSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "evaluatorSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              }
+            ]
           }
+        }
+      }
+    },
+    "partResolutions": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "partId",
+          "fromStatus",
+          "actor",
+          "reason",
+          "evidenceRunId",
+          "evidenceRunArtifact",
+          "evidenceRunSha256",
+          "resolvedAt"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "partId": { "type": "string", "minLength": 1 },
+          "fromStatus": { "type": "string", "enum": ["blocked", "needs-human"] },
+          "actor": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 3 },
+          "evidenceRunId": { "type": "string", "minLength": 1 },
+          "evidenceRunArtifact": { "type": "string", "minLength": 1 },
+          "evidenceRunSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "resolvedAt": { "type": "string", "minLength": 20 }
+        }
+      }
+    },
+    "goalResolutions": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "fromVerdict",
+          "actor",
+          "reason",
+          "evidenceRunId",
+          "evidenceRunArtifact",
+          "evidenceRunSha256",
+          "resolvedAt"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "fromVerdict": { "type": "string", "enum": ["blocked", "needs-human"] },
+          "actor": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 3 },
+          "evidenceRunId": { "type": "string", "minLength": 1 },
+          "evidenceRunArtifact": { "type": "string", "minLength": 1 },
+          "evidenceRunSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "resolvedAt": { "type": "string", "minLength": 20 }
         }
       }
     },
     "recordedRuns": {
       "type": "array",
-      "maxItems": 1000,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -250,6 +377,18 @@
             }
           }
         }
+      }
+    }
+  },
+  "$defs": {
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "reference", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "reference": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     }
   }

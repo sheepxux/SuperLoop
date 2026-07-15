@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/run-log.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/run-log.schema.json",
   "title": "Loop Run Log",
   "type": "object",
   "additionalProperties": false,
@@ -36,6 +36,10 @@
         "required": ["itemId", "verdict", "summary", "evaluator"],
         "properties": {
           "itemId": { "type": "string", "minLength": 1 },
+          "partDefinitionSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
           "verdict": {
             "type": "string",
             "enum": ["pass", "fail", "blocked", "needs-human"]
@@ -50,6 +54,35 @@
               "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
               "contextId": { "type": "string", "minLength": 1 }
             }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifactBinding"
+            }
+          }
+        }
+      }
+    },
+    "goalEvaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "summary", "basisSha256", "evaluator"],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["pass", "fail", "blocked", "needs-human"]
+        },
+        "summary": { "type": "string", "minLength": 1 },
+        "basisSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact", "sha256", "contextId"],
+          "properties": {
+            "artifact": { "type": "string", "minLength": 1 },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "contextId": { "type": "string", "minLength": 1 }
           }
         }
       }
@@ -83,6 +116,18 @@
       "required": ["version", "sha256"],
       "properties": {
         "version": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  },
+  "$defs": {
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "reference", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "reference": { "type": "string", "minLength": 1 },
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     }

@@ -19,9 +19,14 @@ export function writeText(filePath, value) {
 export function readData(filePath) {
   const raw = readText(filePath);
   if (filePath.endsWith(".json")) {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Native JSON.parse accepts duplicate keys and silently keeps the last one.
+    // Parse a second time with YAML's JSON schema solely to enforce I-JSON/JCS
+    // uniqueness at every object level before any digest or decision is trusted.
+    YAML.parse(raw, { schema: "json", uniqueKeys: true });
+    return parsed;
   }
-  return YAML.parse(raw);
+  return YAML.parse(raw, { uniqueKeys: true });
 }
 
 export function writeYaml(filePath, value) {
@@ -30,6 +35,14 @@ export function writeYaml(filePath, value) {
 
 export function writeJson(filePath, value) {
   writeTextAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+export function writeYamlExclusive(filePath, value) {
+  writeTextExclusive(filePath, YAML.stringify(value, { lineWidth: 100 }));
+}
+
+export function writeJsonExclusive(filePath, value) {
+  writeTextExclusive(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 export function writeTextAtomic(filePath, value) {
@@ -47,6 +60,32 @@ export function writeTextAtomic(filePath, value) {
     fs.closeSync(handle);
     handle = undefined;
     fs.renameSync(temporary, filePath);
+    fsyncDirectory(directory);
+  } finally {
+    if (handle !== undefined) fs.closeSync(handle);
+    try {
+      fs.unlinkSync(temporary);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+}
+
+export function writeTextExclusive(filePath, value) {
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const temporary = path.join(
+    directory,
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`
+  );
+  let handle;
+  try {
+    handle = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(handle, value);
+    fs.fsyncSync(handle);
+    fs.closeSync(handle);
+    handle = undefined;
+    fs.linkSync(temporary, filePath);
     fsyncDirectory(directory);
   } finally {
     if (handle !== undefined) fs.closeSync(handle);
@@ -87,147 +126,168 @@ export function withFileLock(lockPath, callback, { timeoutMs = 10_000, staleMs =
 
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.mkdirSync(prepared);
-  writeJson(path.join(prepared, "owner.json"), {
-    token,
-    pid: process.pid,
-    hostname: os.hostname(),
-    acquiredAt: new Date().toISOString()
-  });
+  writeLockOwner(prepared, token);
   try {
     while (true) {
-      try {
-        fs.renameSync(prepared, lockPath);
-        acquired = true;
-        break;
-      } catch (error) {
-        if (!["EEXIST", "ENOTEMPTY"].includes(error.code)) throw error;
+      const acquiredThisAttempt = withLockAcquisitionGate(lockPath, deadline, () => {
+        if (publishPreparedLock(prepared, lockPath, token)) return true;
 
         let stale = false;
         try {
           stale = Date.now() - fs.statSync(lockPath).mtimeMs > staleMs;
         } catch (statError) {
           if (statError.code !== "ENOENT") throw statError;
-          continue;
+          return publishPreparedLock(prepared, lockPath, token);
         }
-        if (stale && lockOwnerIsDead(lockPath)) {
-          const reclaimed = withLockRecoveryClaim(lockPath, deadline, () => {
-            let stillStale;
-            try {
-              stillStale = Date.now() - fs.statSync(lockPath).mtimeMs > staleMs;
-            } catch (statError) {
-              if (statError.code === "ENOENT") return true;
-              throw statError;
-            }
-            if (!stillStale || !lockOwnerIsDead(lockPath)) return false;
-            const quarantine = `${lockPath}.stale.${process.pid}.${crypto.randomBytes(4).toString("hex")}`;
-            try {
-              fs.renameSync(lockPath, quarantine);
-              fs.rmSync(quarantine, { recursive: true, force: true });
-              return true;
-            } catch (recoveryError) {
-              if (["ENOENT", "EEXIST", "ENOTEMPTY"].includes(recoveryError.code)) return false;
-              throw recoveryError;
-            }
-          });
-          if (reclaimed) continue;
-        }
+        if (!stale || !lockOwnerIsDead(lockPath)) return false;
 
-        if (Date.now() >= deadline) {
-          throw new Error(`Timed out waiting for state lock: ${lockPath}`);
+        const quarantine = `${lockPath}.stale.${process.pid}.${crypto.randomBytes(6).toString("hex")}`;
+        try {
+          fs.renameSync(lockPath, quarantine);
+          fs.rmSync(quarantine, { recursive: true, force: true });
+        } catch (recoveryError) {
+          if (!["ENOENT", "EEXIST", "ENOTEMPTY"].includes(recoveryError.code)) throw recoveryError;
         }
-        Atomics.wait(sleeper, 0, 0, 10);
+        return publishPreparedLock(prepared, lockPath, token);
+      });
+      if (acquiredThisAttempt) {
+        acquired = true;
+        break;
       }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for state lock: ${lockPath}`);
+      }
+      Atomics.wait(sleeper, 0, 0, 10);
     }
   } catch (error) {
     if (!acquired) fs.rmSync(prepared, { recursive: true, force: true });
     throw error;
   }
 
-  try {
-    return callback();
-  } finally {
+  const release = () => {
+    let owner;
     try {
-      const owner = readData(path.join(lockPath, "owner.json"));
-      if (owner.token === token) {
-        const quarantine = `${lockPath}.released.${process.pid}.${crypto.randomBytes(6).toString("hex")}`;
-        fs.renameSync(lockPath, quarantine);
-        fs.rmSync(quarantine, { recursive: true, force: true });
-      }
+      owner = readData(path.join(lockPath, "owner.json"));
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    if (!acquired) fs.rmSync(prepared, { recursive: true, force: true });
-  }
-}
-
-function withLockRecoveryClaim(lockPath, deadline, callback) {
-  const claimsDir = `${lockPath}.recovery-claims`;
-  fs.mkdirSync(claimsDir, { recursive: true });
-  const name = `${Date.now()}-${process.pid}-${crypto.randomUUID()}.lock`;
-  const claimPath = path.join(claimsDir, name);
-  fs.mkdirSync(claimPath);
-  const sleeper = new Int32Array(new SharedArrayBuffer(4));
-  try {
-    const initial = listLockRecoveryClaims(claimsDir, claimPath);
-    const ticket = initial.reduce((maximum, claim) => Math.max(maximum, claim.ticket || 0), 0) + 1;
-    writeJson(path.join(claimPath, "ticket.json"), { ticket });
-    while (true) {
-      const claims = listLockRecoveryClaims(claimsDir, claimPath);
-      const choosing = claims.some((claim) => claim.ticket === null);
-      const ready = claims
-        .filter((claim) => claim.ticket !== null)
-        .sort((left, right) => left.ticket - right.ticket || left.name.localeCompare(right.name));
-      if (!choosing && ready[0]?.path === claimPath) return callback();
-      if (Date.now() >= deadline) throw new Error(`Timed out waiting to recover state lock: ${lockPath}`);
-      Atomics.wait(sleeper, 0, 0, 10);
-    }
-  } finally {
-    fs.rmSync(claimPath, { recursive: true, force: true });
-  }
-}
-
-function listLockRecoveryClaims(claimsDir, ownClaimPath) {
-  const claims = [];
-  const now = Date.now();
-  for (const entry of fs.readdirSync(claimsDir, { withFileTypes: true })) {
-    if (!entry.name.endsWith(".lock")) continue;
-    const claimPath = path.join(claimsDir, entry.name);
-    if (!entry.isDirectory()) throw new Error(`Invalid state-lock recovery claim: ${claimPath}`);
-    const match = /^\d+-(\d+)-/.exec(entry.name);
-    let alive = false;
-    if (match) {
-      try {
-        process.kill(Number(match[1]), 0);
-        alive = true;
-      } catch (error) {
-        if (error.code === "EPERM") alive = true;
-        else if (error.code !== "ESRCH") throw error;
+      if (error.code === "ENOENT") {
+        throw new Error(`State lock disappeared before its owner released it: ${lockPath}`);
       }
-    }
-    let stat;
-    try {
-      stat = fs.statSync(claimPath);
-    } catch (error) {
-      if (error.code === "ENOENT") continue;
       throw error;
     }
-    if (claimPath !== ownClaimPath && now - stat.ctimeMs > 30_000 && !alive) {
-      fs.rmSync(claimPath, { recursive: true, force: true });
-      continue;
+    if (owner.token !== token) {
+      throw new Error(`State lock ownership changed before release: ${lockPath}`);
     }
-    let ticket = null;
+    const quarantine = `${lockPath}.released.${process.pid}.${crypto.randomBytes(6).toString("hex")}`;
     try {
-      const data = readData(path.join(claimPath, "ticket.json"));
-      if (!Number.isSafeInteger(data.ticket) || data.ticket < 1) {
-        throw new Error(`Invalid state-lock recovery ticket: ${claimPath}`);
-      }
-      ticket = data.ticket;
+      fs.renameSync(lockPath, quarantine);
+      fs.rmSync(quarantine, { recursive: true, force: true });
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
+      if (error.code === "ENOENT") {
+        throw new Error(`State lock disappeared during owner release: ${lockPath}`);
+      }
+      throw error;
     }
-    claims.push({ path: claimPath, name: entry.name, ticket });
+  };
+
+  let result;
+  try {
+    result = callback();
+  } catch (error) {
+    release();
+    throw error;
   }
-  return claims;
+  try {
+    if (result && typeof result.then === "function") {
+      return Promise.resolve(result).finally(release);
+    }
+  } catch (error) {
+    // Reading a user-supplied thenable may itself throw. Treat that exactly
+    // like a synchronous callback failure so the lock cannot be orphaned by a
+    // hostile or malformed `then` getter.
+    release();
+    throw error;
+  }
+  release();
+  return result;
+}
+
+function writeLockOwner(directory, token) {
+  writeJson(path.join(directory, "owner.json"), {
+    token,
+    pid: process.pid,
+    hostname: os.hostname(),
+    acquiredAt: new Date().toISOString()
+  });
+}
+
+function publishPreparedLock(prepared, lockPath, token) {
+  // Refresh both the diagnostic acquisition time and directory mtime at the
+  // actual publication attempt; a contender may have waited a long time after
+  // creating its private prepared directory.
+  // Check the pathname explicitly because POSIX rename may replace an existing
+  // empty directory; an ownerless/corrupt canonical lock must fail closed.
+  try {
+    fs.lstatSync(lockPath);
+    return false;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  writeLockOwner(prepared, token);
+  try {
+    fs.renameSync(prepared, lockPath);
+    return true;
+  } catch (error) {
+    if (["EEXIST", "ENOTEMPTY"].includes(error.code)) return false;
+    throw error;
+  }
+}
+
+function withLockAcquisitionGate(lockPath, deadline, callback) {
+  // Publishing a prepared owner and reclaiming a stale owner must share one
+  // atomic doorway. Without it, a delayed reclaimer can inspect owner A,
+  // owner B can acquire the same pathname, and the reclaimer can then rename
+  // B's live directory (an ABA race). This short-lived gate is deliberately
+  // never auto-reclaimed: a crash here fails closed until an operator verifies
+  // no loop process is running and removes the gate manually.
+  const gatePath = `${lockPath}.acquire`;
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  let acquired = false;
+  fs.mkdirSync(path.dirname(gatePath), { recursive: true });
+  try {
+    while (true) {
+      try {
+        fs.mkdirSync(gatePath);
+        acquired = true;
+        break;
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out waiting for state-lock acquisition gate: ${gatePath}. `
+          + "A crashed acquisition must be inspected and cleared manually while no loop process is running."
+        );
+      }
+      Atomics.wait(sleeper, 0, 0, 10);
+    }
+    writeJson(path.join(gatePath, "owner.json"), {
+      token: crypto.randomUUID(),
+      pid: process.pid,
+      hostname: os.hostname(),
+      acquiredAt: new Date().toISOString()
+    });
+    return callback();
+  } finally {
+    if (acquired) {
+      const released = `${gatePath}.released.${process.pid}.${crypto.randomBytes(6).toString("hex")}`;
+      try {
+        fs.renameSync(gatePath, released);
+        fs.rmSync(released, { recursive: true, force: true });
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+  }
 }
 
 function lockOwnerIsDead(lockPath) {
@@ -235,9 +295,9 @@ function lockOwnerIsDead(lockPath) {
   try {
     owner = readData(path.join(lockPath, "owner.json"));
   } catch (error) {
-    // A process can die after mkdir and before owner.json is durable. Once the
-    // lock directory itself is stale there is no live owner to protect.
-    if (error.code === "ENOENT") return true;
+    // Canonical locks are published only after owner.json is durable in a
+    // private prepared directory. A missing or malformed owner therefore
+    // indicates corruption or an unknown implementation, not a safe reclaim.
     return false;
   }
   if (owner.hostname !== os.hostname() || !Number.isInteger(owner.pid) || owner.pid < 1) return false;
@@ -256,15 +316,60 @@ export function sha256File(filePath) {
 }
 
 export function sha256Json(value) {
-  return crypto.createHash("sha256").update(stableJson(value)).digest("hex");
+  return crypto.createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
-function stableJson(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+export function canonicalJson(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) {
+    const items = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) {
+        throw new TypeError("Canonical JSON cannot encode sparse arrays.");
+      }
+      items.push(canonicalJson(value[index]));
+    }
+    return `[${items.join(",")}]`;
   }
-  return JSON.stringify(value);
+  if (typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError("Canonical JSON accepts only plain JSON objects.");
+    }
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      throw new TypeError("Canonical JSON cannot encode symbol-keyed properties.");
+    }
+    return `{${Object.keys(value).sort().map((key) => {
+      assertValidUnicode(key);
+      return `${JSON.stringify(key)}:${canonicalJson(value[key])}`;
+    }).join(",")}}`;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("Canonical JSON cannot encode non-finite numbers.");
+    }
+    return JSON.stringify(value);
+  }
+  if (typeof value === "string" || typeof value === "boolean") {
+    if (typeof value === "string") assertValidUnicode(value);
+    return JSON.stringify(value);
+  }
+  throw new TypeError(`Canonical JSON cannot encode ${typeof value}.`);
+}
+
+function assertValidUnicode(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        throw new TypeError("Canonical JSON cannot encode lone Unicode surrogates.");
+      }
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw new TypeError("Canonical JSON cannot encode lone Unicode surrogates.");
+    }
+  }
 }
 
 export function copyFile(source, target) {
@@ -284,14 +389,19 @@ export function schemaPath(name) {
     loop: "loop.schema.json",
     state: "state.schema.json",
     evaluator: "evaluator.schema.json",
+    "goal-evaluation": "goal-evaluation.schema.json",
     "run-log": "run-log.schema.json",
     strategy: "strategy.schema.json",
     experiment: "experiment.schema.json",
     approval: "approval.schema.json",
-    decision: "decision.schema.json"
+    decision: "decision.schema.json",
+    proposal: "proposal.schema.json",
+    "proposal-decision": "proposal-decision.schema.json"
   }[name];
   if (!file) {
-    throw new Error(`Unknown schema "${name}". Expected loop, state, evaluator, run-log, strategy, experiment, approval, or decision.`);
+    throw new Error(
+      `Unknown schema "${name}". Expected loop, state, evaluator, goal-evaluation, run-log, strategy, experiment, approval, decision, proposal, or proposal-decision.`
+    );
   }
   return path.join(repoRoot, "protocol", file);
 }

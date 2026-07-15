@@ -1,0 +1,76 @@
+apiVersion: loop-engineering/v1
+kind: LoopProposal
+metadata:
+  id: deterministic-log-cleanup-proposal
+  revision: 1
+  parentProposalSha256: null
+createdAt: "2026-07-15T00:00:00Z"
+sourceIdea: "每天把 ./logs 目录里超过 30 天的 .log 删除掉，做成 AI 循环。"
+routing:
+  classification: deterministic
+  executionShape: null
+  rationale: "File extension, age, directory, and cadence are stable rules that do not require model judgment."
+  signals:
+    - stable path rule
+    - deterministic age rule
+    - no semantic judgment
+readiness:
+  status: not-applicable
+  blockers: []
+  warnings:
+    - "Permanent deletion should follow a preview and quarantine retention window."
+goal:
+  objective:
+    id: goal-bounded-cleanup
+    statement: "Keep eligible old log files out of the active log directory through a recoverable deterministic job."
+    outcome: "Only .log files older than 30 days under the exact approved path leave the active directory."
+    measurement: "Preview manifest, path-containment test, age-boundary fixtures, and quarantine inventory."
+  acceptanceCriteria:
+    - id: ac-exact-eligibility
+      statement: "Every selected file is a regular .log file older than 30 days inside the resolved ./logs directory."
+      evidence:
+        - tests
+        - artifact-review
+      passCondition: "Boundary fixtures and the preview manifest contain no ineligible or escaped path."
+    - id: ac-recoverable-cleanup
+      statement: "Eligible files move to quarantine before a separate retention policy permits permanent deletion."
+      evidence:
+        - tests
+        - artifact-review
+      passCondition: "The recovery test restores a quarantined fixture and no permanent deletion occurs in preview mode."
+  nonGoals:
+    - id: non-goal-agent-judgment
+      condition: "Do not use a model to decide file eligibility or broaden the approved path."
+  stopConditions:
+    - id: stop-no-eligible-files
+      condition: "The preview discovers no eligible files."
+    - id: stop-preview-failure
+      condition: "A containment, age, or recovery check fails."
+  blockedConditions:
+    - id: blocked-path
+      condition: "The approved log root cannot be resolved to the expected directory."
+questions: []
+assumptions:
+  - id: assumption-local-time
+    statement: "Age is computed from file modification time using an explicit UTC cutoff."
+    status: confirmed
+    blocking: false
+prerequisites:
+  - id: prereq-scheduler
+    kind: tool
+    requirement: "A scheduler and filesystem account restricted to the approved log and quarantine paths."
+    status: met
+    blocking: true
+risks:
+  - id: risk-deletion
+    severity: high
+    description: "A path or cutoff bug could remove recent or unrelated files."
+    mitigation: "Resolve real paths, preview a manifest, use quarantine, test boundaries, and separate permanent deletion approval."
+    status: mitigated
+    blocking: true
+alternative:
+  mode: deterministic-workflow
+  recommendation: "Use a tested cleanup script in preview mode, then schedule quarantine moves with a separate retention job."
+  verification:
+    - "Test exact 30-day boundaries, symlinks, traversal, wrong extensions, recovery, and empty runs."
+candidate: null

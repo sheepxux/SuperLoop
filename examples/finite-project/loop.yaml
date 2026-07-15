@@ -1,0 +1,164 @@
+apiVersion: loop-engineering/v1
+kind: Loop
+metadata:
+  name: finite-project
+  owner: project-owner
+  description: "A domain-neutral finite project completed through dependency-ready Parts, independent Part Gates, and one final Goal Gate."
+  risk: medium
+  tags:
+    - finite-work-plan
+    - multi-part
+goal:
+  objective: "Deliver one approved finite project outcome through bounded Parts and independent whole-Goal verification."
+  acceptanceCriteria:
+    - "Every approved Part produces its declared durable artifacts and passes its exact Part acceptance criteria."
+    - "The integrated final deliverable satisfies the approved Goal Contract with independent evidence."
+  stopConditions:
+    - "The final Goal Gate passes and the finite lifecycle is completed."
+    - "The run reaches the configured item, time, or cost budget."
+  blockedConditions:
+    - "A required source, tool, or independent evaluator is unavailable."
+    - "Execution reveals a material scope change that requires a new proposal revision."
+workPlan:
+  mode: finite
+  maxPartsPerRun: 1
+  parts:
+    - id: establish-foundation
+      title: "Establish the approved foundation"
+      objective: "Produce the durable foundation required by every later project Part."
+      dependsOn: []
+      goalCriteria:
+        - "Every approved Part produces its declared durable artifacts and passes its exact Part acceptance criteria."
+      acceptanceCriteria:
+        - id: foundation-complete
+          statement: "The approved foundation is complete, internally consistent, and usable by dependent Parts."
+          evidence:
+            - foundation-review
+          passCondition: "Independent review finds every required foundation element present and no unresolved internal contradiction."
+      verification:
+        requiredEvidence:
+          - foundation-review
+        commands: []
+      expectedArtifacts:
+        - id: foundation-package
+          description: "Durable approved inputs and constraints for dependent Parts."
+    - id: produce-deliverable
+      title: "Produce the bounded deliverable"
+      objective: "Create the primary deliverable from the accepted foundation without expanding approved scope."
+      dependsOn:
+        - establish-foundation
+      goalCriteria:
+        - "Every approved Part produces its declared durable artifacts and passes its exact Part acceptance criteria."
+        - "The integrated final deliverable satisfies the approved Goal Contract with independent evidence."
+      acceptanceCriteria:
+        - id: deliverable-complete
+          statement: "The primary deliverable covers the approved scope and preserves the accepted foundation."
+          evidence:
+            - deliverable-review
+          passCondition: "Independent review finds every in-scope requirement represented and no approved constraint violated."
+      verification:
+        requiredEvidence:
+          - deliverable-review
+        commands: []
+      expectedArtifacts:
+        - id: primary-deliverable
+          description: "The durable primary project deliverable."
+    - id: integrate-project
+      title: "Integrate the complete project"
+      objective: "Assemble the accepted Part artifacts into one coherent final deliverable for whole-Goal evaluation."
+      dependsOn:
+        - produce-deliverable
+      goalCriteria:
+        - "The integrated final deliverable satisfies the approved Goal Contract with independent evidence."
+      acceptanceCriteria:
+        - id: integration-coherent
+          statement: "The integrated artifact is complete, coherent, and traceable to the accepted Part artifacts."
+          evidence:
+            - integration-review
+          passCondition: "Independent review can trace every integrated element to an accepted artifact and finds no missing or conflicting section."
+      verification:
+        requiredEvidence:
+          - integration-review
+        commands: []
+      expectedArtifacts:
+        - id: integrated-deliverable
+          description: "The complete artifact submitted to the final Goal Gate."
+  completion:
+    evaluator: project-goal-evaluator
+    independent: true
+    requiredEvidence:
+      - artifact-review
+    commands: []
+    maxAttempts: 2
+discovery:
+  sources:
+    - type: work-plan
+      description: "Do not discover external items; select only dependency-ready Parts from the approved fixed Work Plan."
+  ranking:
+    strategy: "Retry eligible failed Parts first, then use Work Plan array order within each eligibility class."
+    deterministicFirst: true
+  maxItemsPerRun: 1
+handoff:
+  worker: project-part-worker
+  isolation: task-directory
+  permissions:
+    - read-local-files
+    - write-local-files
+  prompt: "Complete exactly one eligible Part, produce every declared artifact, and do not evaluate or expand the approved Work Plan."
+verification:
+  evaluator: project-part-evaluator
+  independent: true
+  defaultStance: assume-broken
+  requiredEvidence:
+    - artifact-review
+  commands: []
+  verdicts:
+    - pass
+    - fail
+    - blocked
+    - needs-human
+persistence:
+  statePath: ".loop-engineering/loops/finite-project/state.json"
+  runLogDir: ".loop-engineering/loops/finite-project/runs"
+  inboxPath: ".loop-engineering/loops/finite-project/inbox.md"
+  decisionsPath: ".loop-engineering/loops/finite-project/decisions.md"
+schedule:
+  runtime: manual
+  cadence: "manual"
+  timezone: "UTC"
+  timeoutMinutes: 30
+  concurrency:
+    group: finite-project
+    cancelInProgress: false
+runner:
+  executor: dry-run
+  workingDirectory: "."
+  pollSeconds: 30
+safety:
+  budgets:
+    maxItemsPerRun: 1
+    maxDailyRuns: 4
+    maxRuntimeMinutes: 30
+    maxEstimatedUsdPerRun: 5
+  retries:
+    maxRetriesPerItem: 2
+    onRepeatedFailure: needs-human
+  humanGates:
+    autoAllowed:
+      - read-local-files
+      - write-local-files
+      - write-run-summary
+    needsReview:
+      - revise-fixed-work-plan
+    humanOnly:
+      - merge-pull-request
+      - deploy-production
+      - delete-data
+      - spend-money
+      - change-permissions
+  failurePolicy:
+    onBudgetExceeded: stop-run
+    onUnsafeAction: block
+outputs:
+  - run-summary
+  - artifact

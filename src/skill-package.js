@@ -7,7 +7,9 @@ import { repoRoot } from "./fs-utils.js";
 
 export const CANONICAL_SKILL_DIR = path.join(repoRoot, "skills", "loop-engineering");
 export const SKILL_PLATFORMS = new Set(["codex", "claude-code"]);
-const PACKAGE_VERSION = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).version;
+const PACKAGE_METADATA = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+const PACKAGE_VERSION = PACKAGE_METADATA.version;
+const PACKAGE_LICENSE = PACKAGE_METADATA.license;
 
 export function validateSkillPackage(skillDir = CANONICAL_SKILL_DIR) {
   const errors = [];
@@ -24,7 +26,7 @@ export function validateSkillPackage(skillDir = CANONICAL_SKILL_DIR) {
   const metadata = parsed?.metadata || {};
   const folderName = path.basename(root);
 
-  const standardMetadataKeys = new Set(["name", "description", "license", "allowed-tools"]);
+  const standardMetadataKeys = new Set(["name", "description", "license"]);
   const extraMetadataKeys = Object.keys(metadata).filter((key) => !standardMetadataKeys.has(key));
   const installedByGitHub = root !== path.resolve(CANONICAL_SKILL_DIR)
     && extraMetadataKeys.length === 1
@@ -47,13 +49,9 @@ export function validateSkillPackage(skillDir = CANONICAL_SKILL_DIR) {
   } else if (metadata.description.length > 1024) {
     errors.push("Skill description must be at most 1024 characters.");
   }
-  if (metadata.license !== undefined && (typeof metadata.license !== "string" || metadata.license.trim().length === 0)) {
-    errors.push("Skill license must be a non-empty string when provided.");
+  if (metadata.license !== PACKAGE_LICENSE) {
+    errors.push(`Skill license must match package license ${PACKAGE_LICENSE}.`);
   }
-  if (metadata["allowed-tools"] !== undefined && typeof metadata["allowed-tools"] !== "string") {
-    errors.push("Skill allowed-tools must be a string when provided.");
-  }
-
   const lineCount = source.split(/\r?\n/).length;
   if (lineCount > 500) {
     errors.push(`SKILL.md has ${lineCount} lines; keep it at or below 500.`);
@@ -363,8 +361,10 @@ function validateEvalResults(root, evals, skillName, errors) {
       typeof session?.id !== "string"
       || typeof session?.artifact !== "string"
       || !/^[a-f0-9]{64}$/.test(session?.sha256 || "")
+      || typeof session?.raw_artifact !== "string"
+      || !/^[a-f0-9]{64}$/.test(session?.raw_sha256 || "")
     ) {
-      errors.push(`${resultName} session records require id, artifact, and SHA-256.`);
+      errors.push(`${resultName} session records require id, review artifact/SHA-256, and raw artifact/SHA-256.`);
       continue;
     }
     const target = path.resolve(root, session.artifact);
@@ -380,6 +380,20 @@ function validateEvalResults(root, evals, skillName, errors) {
       const record = JSON.parse(raw.toString("utf8"));
       if (record.id !== session.id || record.kind !== "fresh-session-review-record") {
         throw new Error("artifact identity does not match the declared session");
+      }
+      const rawTarget = path.resolve(root, session.raw_artifact);
+      const rawReal = fs.realpathSync(rawTarget);
+      if (!rawReal.startsWith(`${realRoot}${path.sep}`) || !fs.statSync(rawReal).isFile()) {
+        throw new Error("raw artifact must be a regular file inside the Skill directory");
+      }
+      const rawDigest = crypto.createHash("sha256").update(fs.readFileSync(rawReal)).digest("hex");
+      if (rawDigest !== session.raw_sha256) throw new Error("raw artifact SHA-256 does not match");
+      if (
+        record.rawOutputRetained !== true
+        || record.rawArtifact !== session.raw_artifact
+        || record.rawSha256 !== session.raw_sha256
+      ) {
+        throw new Error("review artifact does not bind the declared raw fresh-session output");
       }
       sessionRecords.set(session.id, record);
     } catch (error) {

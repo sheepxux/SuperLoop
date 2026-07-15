@@ -1,5 +1,27 @@
 # Changelog / 更新日志
 
+## v1.1.0 — Idea-to-Loop design plane / 想法到循环设计层
+
+- Added a first-class `Propose` mode that turns vague recurring ideas into evidence-bearing Goal Contracts and non-executable `LoopProposal` artifacts.
+- Added a bounded intake policy: ask at most three questions that materially change routing, verification, permissions, or safety; record safe unknowns as explicit assumptions.
+- Added proposal and proposal-decision schemas, templates, custom semantic/traceability validation, and CLI commands to validate, decide, and compile proposals.
+- Added one domain-neutral finite Work Plan inside a Loop for composite outcomes: stable Parts, acyclic dependencies, exact Part acceptance, durable artifact bindings, and dependency-ready scheduling.
+- Added optional Part-specific verification envelopes, extensible typed evidence names, and generic local/source/tool permissions so heterogeneous Parts can use domain-appropriate checks without creating domain-specific Skills.
+- Added separate Part Gates and a distinct final Goal Gate; failed Parts cannot unlock dependents, final failure reopens affected Parts and descendants, and only a passing whole-Goal evaluation can complete the Loop.
+- Required accepted Part artifacts to resolve to distinct regular files inside the Loop directory with recomputed SHA-256 matches; external deliverables retain a local export or receipt.
+- Added immutable Part-result and Goal-run state anchors, audited `part reopen` / `goal resolve` recovery for blocked or human-required states, and exact failed-Goal-criterion tracing to affected Parts.
+- Added complete finite-ledger causal replay so direct edits cannot reopen Parts, lower retry/Goal counters, resume unresolved attention, or forge completion; continuous streams retain their bounded recent ledger.
+- Protected frozen `state.json` and `loop.yaml` from command-executor mutation by rejecting the draft, retaining evidence, restoring the preflight snapshot, and recording a counted failure.
+- Added explicit continuous-stream versus finite-plan routing, a generic finite-project example, phase-aware adapters, and Work Plan protocol/runtime documentation without domain-specific behavior.
+- Bound human proposal decisions to the exact proposal ID, revision, and canonical SHA-256; modified or unresolved proposals fail closed.
+- Added digest-linked proposal revisions; revision 2 and later require the exact parent during validation, decision, and compilation.
+- Made proposal compilation deterministic, persisted the complete Goal Contract, and embedded tamper-evident proposal/candidate/Goal/reconstructable-decision provenance in the resulting `loop.yaml`.
+- Preserved approved contract identity during initialization: proposal-compiled loops require the exact `metadata.name`, `.loop-engineering/loops` root, and reviewed persistence paths.
+- Preserved smaller one-shot and deterministic routes and kept proposal, evaluator, governance, runtime, and strategy-evolution trust boundaries separate.
+- Added positive, negative, digest-tampering, readiness, and fresh-session behavior tests for the complete Idea-to-Loop path.
+
+中文摘要：本版本把“模糊想法”升级为正式输入。Skill 先生成可验证 Goal 与不可执行 Loop 提案；只有人类确认假设和 prerequisites、审阅完整提案并批准精确摘要后，运行时才能确定性编译契约。有限复杂任务使用同一个 Loop 和通用 Work Plan 分 Part 推进，每个 Part 独立验收，全部通过后仍须经过最终 Goal Gate；持续任务则保留有界发现模式。编译产物保留完整 Goal Contract、可检出篡改的来源绑定和不可变持久化布局；提案设计、执行验收与权限授权互不冒充。
+
 ## v1.0.2 — Release hardening / 发布加固
 
 - Added allowlisted multi-file transaction recovery for run/state recording and experiment approval, promotion, and rollback.

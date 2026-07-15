@@ -10,40 +10,53 @@
 
 An installable advanced Agent Skill with a local reference runtime that supports it.
 
-Loop-Engineering governs recurring agent work with an explicit, auditable engineering contract:
+Loop-Engineering first compiles a vague idea into a reviewable goal, then governs recurring or finite long-horizon agent work with an explicit, auditable engineering contract:
 
 ```text
-suitability → goal → discovery → isolated handoff → independent verification → persistence → schedule → next run
-                                                       ↓
-                                         matched benchmark → promote or roll back strategy
+vague idea → Goal Contract + LoopProposal (non-executable)
+                        → exact human digest approval → loop.yaml → continuous discovery or fixed Work Plan
+                                                            → Part Gate → persistence → next Part
+                                                            → final Goal Gate → completed
+                                                                                                 ↓
+                                                                          matched benchmark → promote or roll back
 ```
 
 Its primary product is the complete Skill under `skills/loop-engineering`. `loopctl`, `loopd`, protocol schemas, and platform plugins are the deterministic execution foundation for that Skill.
 
-## Current Version: v1.0.2
+## Current Version: v1.1.0
 
-`v1.0.2` is the release-hardened complete Skill-first v1. In addition to the canonical Skill, progressive references, self-contained assets, dual-platform plugins, local Runner, and controlled strategy evolution, it adds recoverable multi-file transactions, fail-closed lease/state recovery, immutable run records, a trusted dry-run boundary, real-path containment, per-case strategy-evaluator binding, and fresh-session summaries with digest-bound per-expectation review records.
+`v1.1.0` adds the Idea-to-Loop design plane. The Skill turns a vague idea into an evidence-bearing Goal Contract and a non-executable `LoopProposal`, asking at most three questions that materially change the design. A human decision binds the proposal's exact SHA-256 before the runtime can deterministically compile `loop.yaml`. A changed proposal, unresolved blocker, or digest mismatch fails closed. Digests use a frozen [Canonical JSON algorithm](docs/canonical-json.md) that external approval systems can reproduce.
+
+Compilation persists the complete Goal Contract at `loop.yaml.goalContract`. `metadata.provenance` binds the source proposal, approved candidate Loop body, and Goal Contract digests, and retains the fields and digest needed to reconstruct the human approval. `loopctl validate` recomputes those bindings. With the original proposal/decision or another trusted digest retained, the compiled contract is tamper-evident; local hashes provide integrity evidence, not a signature or identity proof.
+
+A finite composite task uses one Loop and one Goal Contract. A fixed Work Plan decomposes the complete outcome into Parts with dependencies, expected artifacts, and exact acceptance criteria. Each Iteration attempts one eligible Part; an independent Part Gate must pass before progress unlocks. Different Parts may declare their own evidence types and verification commands, inheriting the Loop-level defaults only when no Part override exists. After every Part passes, a separate independent Goal Gate checks every whole-Goal acceptance criterion, and only that gate can enter `completed`. Parts are derived from the approved Goal rather than a writing, software, research, migration, or other domain preset.
+
+The v1.0.2 local Runner, independent evaluation, durable state, transaction recovery, budgets, human gates, and controlled strategy evolution remain intact. Schema validity proves structure and cross-field invariants; human review and independent Skill evals still judge semantic intent quality.
 
 “Evolution” means benchmark-gated task-strategy optimization. It does not modify model weights and cannot weaken the safety contract.
 
 ## What the Skill Does
 
-The Skill first classifies a request:
+When the input is still an idea, the Skill defaults to `Propose`: it preserves the original intent, records assumptions, and produces a verifiable goal plus a suggested loop shape without creating runtime state or taking external action. It also classifies the request:
 
-- `one-shot`: do it directly; do not create a loop.
+- `one-shot`: it fits one bounded execution and evaluation context; do it directly without a loop.
 - `deterministic`: prefer a script, CI job, or cron entry.
-- `agentic-loop`: design a loop for recurring work that needs bounded judgment.
+- `agentic-loop`: design a loop for recurring judgment or a finite long-horizon outcome that needs multiple independently verified Parts.
 - `unsafe-loop`: add human gates or refuse unattended execution.
 
-For suitable work, it routes among seven modes: assess, design, scaffold, run, review, recover, and evolve.
+For suitable work, it routes among eight modes: propose, assess, design, scaffold, run, review, recover, and evolve. `Propose` and `Design` never silently expand into `Scaffold` or `Run`.
 
-## Complete v1.0 Capabilities
+## Complete Capabilities
 
 - Standard Agent Skills layout: `SKILL.md`, `agents/openai.yaml`, `references/`, `scripts/`, `assets/`, and `evals/`.
 - One canonical Skill for Codex and Claude Code, avoiding duplicated instruction sources.
 - Codex and Claude Code plugin/marketplace manifests plus source and npm installation fallbacks.
 - Portable `loop.yaml` contract with JSON Schema and custom safety validation.
-- Durable state, run planning, pause/resume, retry queues, a bounded ledger for the latest 1,000 runs, human inboxes, and audit logs.
+- Non-executable `LoopProposal`, evidence-bearing Goal Contract, no more than three material questions, explicit assumptions, and prerequisite/readiness quality gates.
+- Separate `LoopProposalDecision`; approve, reject, and request-changes decisions bind the proposal ID, revision, and canonical SHA-256 before deterministic compilation of a provenance-bearing `loop.yaml`.
+- Optional universal finite Work Plans with stable Part IDs, acyclic dependencies, exact Goal traceability, extensible evidence types, heterogeneous Part verification commands, artifact digest bindings, dependency-ready advancement, and an independent final Goal Gate.
+- `loopctl next` exposes `work`, `goal-evaluation`, or `completed`; failed Parts retain their retry boundary, locked Parts cannot be skipped, and a failed final evaluation reopens only evidence-linked Parts and descendants.
+- Durable state, run planning, pause/resume, retry queues, human inboxes, and audit logs. Continuous streams retain the latest 1,000 run summaries; finite Work Plans retain the complete run ledger required for causal replay.
 - State and leases bind the loop generation and exact contract digest; evolution runs plus active/archived strategies bind versions and SHA-256, so stale work cannot commit across generations.
 - Every task result must bind an independent evaluator artifact, context ID, and SHA-256; empty results cannot masquerade as success.
 - Item, discovery, per-run time, daily run, and per-run cost budgets fail closed; concurrent records cannot lose or bypass accounting.
@@ -58,33 +71,35 @@ For suitable work, it routes among seven modes: assess, design, scaffold, run, r
 - Per-loop Codex/Claude Skills, ChatGPT advisory instructions, and OpenClaw/generic harness adapters.
 - GitHub Actions generates an explicitly labeled read-only preflight scaffold, not a fake operational executor.
 
+See the validated [generic finite Work Plan example](examples/finite-project/loop.yaml) and its [non-executable Proposal example](examples/idea-to-loop/finite-project.proposal.yaml). They use only Goal, Parts, dependencies, Part Gates, and a final Goal Gate—no writing or other domain-specific behavior.
+
 ## Install the Skill
 
 ### GitHub Skill (recommended; GitHub CLI currently marks this capability as preview)
 
 ```bash
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.0.2 --agent codex
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.0.2 --agent claude-code
+gh skill install sheepxux/Loop-Engineering loop-engineering@v1.1.0 --agent codex
+gh skill install sheepxux/Loop-Engineering loop-engineering@v1.1.0 --agent claude-code
 ```
 
 ### Codex plugin
 
 ```text
-codex plugin marketplace add sheepxux/Loop-Engineering --ref v1.0.2
+codex plugin marketplace add sheepxux/Loop-Engineering --ref v1.1.0
 codex plugin add loop-engineering@loop-engineering
 ```
 
 ### Claude Code plugin
 
 ```text
-claude plugin marketplace add sheepxux/Loop-Engineering@v1.0.2
+claude plugin marketplace add sheepxux/Loop-Engineering@v1.1.0
 claude plugin install loop-engineering@loop-engineering
 ```
 
 ### Install and validate from source
 
 ```bash
-git clone --branch v1.0.2 https://github.com/sheepxux/Loop-Engineering.git
+git clone --branch v1.1.0 https://github.com/sheepxux/Loop-Engineering.git
 cd Loop-Engineering
 npm ci
 node ./bin/loopctl.js skill validate
@@ -96,36 +111,70 @@ node ./bin/loopctl.js skill install both --scope project
 After the publisher completes the optional npm registry release, you can also use:
 
 ```bash
-npm install --global @sheepxux/loop-engineering@1.0.2
+npm install --global @sheepxux/loop-engineering@1.1.0
 loopctl skill install both --scope user
 ```
 
 ## Quick Start
 
-These commands use the pinned GitHub `v1.0.2` runtime directly, so plugin installation does not need to place `loopctl` on `PATH`. In a source checkout, replace the prefix with `node ./bin/loopctl.js` (and use `node ./bin/loopd.js` for `loopd`).
+These commands use the pinned GitHub `v1.1.0` runtime directly, so plugin installation does not need to place `loopctl` on `PATH`. In a source checkout, replace the prefix with `node ./bin/loopctl.js` (and use `node ./bin/loopd.js` for `loopd`).
 
 ```bash
-RUNTIME="github:sheepxux/Loop-Engineering#v1.0.2"
+RUNTIME="github:sheepxux/Loop-Engineering#v1.1.0"
 
 # Check the Skill, schemas, plugin metadata, and generated-file drift
 npm exec --yes --package="$RUNTIME" -- loopctl doctor
 npm exec --yes --package="$RUNTIME" -- loopctl skill validate
 
-# Initialize a loop from the Skill's safe dry-run template
-npm exec --yes --package="$RUNTIME" -- loopctl init quickstart --out .loop-engineering/loops
+# First have the $loop-engineering Skill write proposal.yaml; a proposal cannot execute
+npm exec --yes --package="$RUNTIME" -- loopctl proposal validate proposal.yaml
+
+# First resolve blockers; a human confirms assumptions and prerequisites, and readiness is ready-for-review
+# Only a human who reviewed the complete proposal creates the digest-bound approval
+npm exec --yes --package="$RUNTIME" -- loopctl proposal decide proposal.yaml \
+  --approve --actor "your-name" --reason "goal and boundaries reviewed" \
+  --out proposal-decision.json
+
+# Compilation checks the approval digest and writes provenance; any tampering is rejected
+npm exec --yes --package="$RUNTIME" -- loopctl proposal compile proposal.yaml \
+  --decision proposal-decision.json --out loop.yaml
+
+# Initialize from the approved contract; the name must exactly match loop.yaml metadata.name
+LOOP_NAME="<loop.yaml metadata.name>"
+npm exec --yes --package="$RUNTIME" -- loopctl init "$LOOP_NAME" \
+  --from loop.yaml --out .loop-engineering/loops
 
 # Mechanically check budgets, retries, and human gates
-npm exec --yes --package="$RUNTIME" -- loopctl next .loop-engineering/loops/quickstart
+npm exec --yes --package="$RUNTIME" -- loopctl next ".loop-engineering/loops/$LOOP_NAME"
 
 # Render platform-specific instance Skills
-npm exec --yes --package="$RUNTIME" -- loopctl render codex .loop-engineering/loops/quickstart/loop.yaml --out .
-npm exec --yes --package="$RUNTIME" -- loopctl render claude-code .loop-engineering/loops/quickstart/loop.yaml --out .
+npm exec --yes --package="$RUNTIME" -- loopctl render codex ".loop-engineering/loops/$LOOP_NAME/loop.yaml" --out .
+npm exec --yes --package="$RUNTIME" -- loopctl render claude-code ".loop-engineering/loops/$LOOP_NAME/loop.yaml" --out .
 
 # Exercise the Runner safely; this does not count as task success or evolution evidence
-npm exec --yes --package="$RUNTIME" -- loopd start --once --loop quickstart
+npm exec --yes --package="$RUNTIME" -- loopd start --once --loop "$LOOP_NAME"
 ```
 
 Codex instances are written to `.agents/skills/<loop-name>/`; Claude Code instances go to `.claude/skills/<loop-name>/`. They are loop-specific execution entry points and never overwrite the canonical `loop-engineering` Skill.
+
+The bundled `skills/loop-engineering/assets/proposal.yaml` is **intentionally `needs-input`**: its assumption is unconfirmed and its repository-access prerequisite is unmet, so it cannot be approved as shipped. A human must review and confirm or reject every assumption, verify each prerequisite's real status, and then make readiness and blockers reflect reality. Only an unblocked `ready-for-review` proposal can be approved.
+
+When a human requests changes, create a digest-linked revision instead of overwriting the old proposal. Revision 2 and later must supply the exact parent proposal during validation, decision, and compilation:
+
+```bash
+loopctl proposal revise proposal-v1.yaml --out proposal-v2.yaml
+# Edit proposal-v2.yaml, resolve the request, and have a human confirm assumptions and prerequisites
+loopctl proposal validate proposal-v2.yaml --parent proposal-v1.yaml
+loopctl proposal decide proposal-v2.yaml --parent proposal-v1.yaml \
+  --approve --actor "your-name" --reason "revision and prerequisites reviewed" \
+  --out proposal-v2-decision.json
+loopctl proposal compile proposal-v2.yaml --parent proposal-v1.yaml \
+  --decision proposal-v2-decision.json --out loop.yaml
+```
+
+For a proposal-compiled contract, `init` does not rename the reviewed contract or relocate its persistence paths: `<name>` must exactly equal `loop.yaml.metadata.name`, `--out` must be `.loop-engineering/loops`, and the result uses `.loop-engineering/loops/<name>/{state.json,runs/,inbox.md,decisions.md}`. Revise and re-approve the proposal to change a name or path.
+
+Direct `loop.yaml` authoring is only for a user-supplied existing contract or an explicitly requested expert path. An agent must not move a vague or new idea onto it to bypass Proposal review.
 
 ## Upgrade from v1.0.1
 
@@ -200,6 +249,10 @@ Rejecting a pending experiment writes its exact digest, independent actor, time,
 ```bash
 loopctl skill validate [dir]
 loopctl skill install <codex|claude-code|both> --scope <project|user>
+loopctl proposal validate <proposal.yaml...> [--parent <parent-proposal.yaml>]
+loopctl proposal revise <parent-proposal.yaml> --out <proposal.yaml>
+loopctl proposal decide <proposal.yaml> [--parent <parent-proposal.yaml>] --approve|--reject|--request-changes [--change <text>] --actor <human> --reason <text> --out <decision.json>
+loopctl proposal compile <proposal.yaml> [--parent <parent-proposal.yaml>] --decision <decision.json> --out <loop.yaml>
 loopctl validate <loop.yaml...>
 loopctl init <name> --from <loop.yaml> --out <directory>
 loopctl migrate <loop-dir|loop.yaml> [--retire-expired-lease]
@@ -214,6 +267,8 @@ loopctl status --root .loop-engineering/loops
 loopctl runs <loop-dir>
 loopctl pause <loop-dir> --reason <text>
 loopctl resume <loop-dir>
+loopctl part reopen <loop-dir> --id <part-id> --actor <human> --reason <text>
+loopctl goal resolve <loop-dir> --actor <human> --reason <text>
 loopctl check <schema> <file...>
 loopctl schema <schema>
 loopctl doctor
@@ -230,9 +285,9 @@ Supported instance renderers:
 
 ## Evidence and Safety Model
 
-The worker produces a candidate result, an independent evaluator decides whether the result passes, and a human decides whether high-risk external effects occur.
+The worker produces a candidate result, an independent evaluator decides whether the result passes, and a human decides whether high-risk external effects occur. In a finite Work Plan, the intermediate evaluator checks only the active Part's exact criteria and declared artifacts; a separate final Goal Gate checks the complete Goal, so an intermediate Part is never asked to pretend it completed the whole outcome.
 
-Run recording validates evaluator artifact schema, configured identity, loop/item/verdict/context bindings, real-path containment, and SHA-256. Passing results must cover configured evidence types and unique successful commands. `passed + []`, status/verdict mismatches, duplicate or unknown items, terminal-state overwrites, discovery/budget overruns, missing state, time regression, and future timestamps are rejected. The Runner overwrites a command draft's `startedAt` and `finishedAt` with its trusted execution window and derives the UTC accounting day from completion; accounting cannot move backward. State-ledger timestamps must be monotonic, and `lastRunAt` must match the latest non-dry-run record. Transaction recovery mechanically recomputes target state and its accounting day from journal pre-state plus immutable artifacts instead of trusting a partial write. Run records are immutable; identical replay revalidates evaluator evidence while remaining idempotent and cannot consume budget twice.
+Run recording validates evaluator artifact schema, configured identity, loop/item/verdict/context bindings, real-path containment, and SHA-256. A passing finite Work Plan result must map every declared artifact to a distinct, run-versioned real snapshot inside the Loop directory whose bytes match the recomputed SHA-256. Accepted snapshots cannot be overwritten; corrections emit new snapshots from separate editable working files, and externally hosted deliverables need a durable local export or receipt. Passing results must cover the active Part's effective evidence/commands—its own envelope or the Loop default when omitted—while the final Goal Gate covers the complete global envelope. `passed + []`, status/verdict mismatches, duplicate or unknown items, terminal-state overwrites, discovery/budget overruns, missing state, time regression, and future timestamps are rejected. The Runner overwrites a command draft's `startedAt` and `finishedAt` with its trusted execution window and derives the UTC accounting day from completion; accounting cannot move backward. State-ledger timestamps must be monotonic, and `lastRunAt` must match the latest non-dry-run record. Transaction recovery mechanically recomputes target state and its accounting day from journal pre-state plus immutable artifacts instead of trusting a partial write. Run records are immutable; identical replay revalidates evaluator and Part-artifact evidence while remaining idempotent and cannot consume budget twice.
 
 The current Runner is not an operating-system sandbox. A command executor uses the current user's permissions and runs only with explicit `--allow-command`; that flag does not authorize merge, deployment, deletion, spending, external messages, or permission changes. Do not give unattended loops privileged production credentials or enable commands in untrusted repositories.
 
@@ -254,12 +309,16 @@ docs/                      architecture, protocol, positioning, and release docu
 
 ## Current Boundaries
 
+- “Universal” means the control protocol and Part model are domain-neutral, not that literally every task can complete automatically. Work must be boundedly decomposable, leave durable evidence, support independent evaluation, and have real worker, evaluator, tool, and credential integrations.
 - `loopd` is a local reference runtime and does not embed Codex, Claude, or OpenClaw SDKs; real agents connect through the command executor or platform scheduling.
 - GitHub Actions output is a manual, read-only preflight scaffold. Add a real executor, durable state channel, least-privilege permissions, and secret policy before scheduling it.
-- Atomic file replacement, serialized state updates, lease-operation locks, owner tokens, and timeouts are implemented, but this is not a distributed database or container sandbox.
+- Atomic file replacement, serialized state updates, lease-operation locks, owner tokens, and timeouts are implemented. State-lock acquire/reclaim shares an atomic gate to prevent ABA races; a process crash inside that gate fails closed until an operator confirms no owner is alive and clears it manually. This is not a distributed database or container sandbox.
 - Runs, state, experiments, approvals, rejection decisions, promotions, and rollbacks use recoverable transaction journals. This is local-filesystem integrity, not a cross-host consensus protocol.
 - Commands must remain in the foreground and leave no background children. The synchronous reference Runner has no in-flight async heartbeat or process-group sandbox.
 - `approval.approver` and `decision.actor` are local audit assertions, not identity-provider authentication. The runtime rejects configured worker/evaluator self-approval or self-rejection, but high-risk governance still requires a real human process.
+- Evaluator identity and context IDs are auditable protocol bindings, not cryptographic identity or process-isolation proofs. The integration platform or executor must create genuinely independent contexts.
+- A finite Work Plan stays fixed while it runs. Changing Part scope, order, dependencies, artifacts, acceptance, or the final Goal Gate requires stopping and creating a parent-linked proposal revision; the plan cannot silently expand itself.
+- `blocked` and `needs-human` are never converted back to executable work by a generic `resume`. Part and final-Goal recovery use `part reopen` and `goal resolve`, with an independent actor, reason, and immutable binding to the attention run.
 - Strategy evolution provides verifiable external strategy optimization. It does not guarantee every candidate improves and does not claim autonomous model training.
 
 ## Development and Release Validation

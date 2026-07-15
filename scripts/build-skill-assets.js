@@ -4,9 +4,12 @@ import path from "node:path";
 import { copyFile, repoRoot } from "../src/fs-utils.js";
 
 const names = [
+  "proposal.yaml",
+  "proposal-decision.json",
   "loop.yaml",
   "state.json",
   "evaluator-result.json",
+  "goal-evaluation.json",
   "run-log.json",
   "strategy.json",
   "experiment.json",

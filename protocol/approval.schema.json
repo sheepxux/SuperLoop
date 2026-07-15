@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/approval.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/approval.schema.json",
   "title": "Strategy Promotion Approval",
   "type": "object",
   "additionalProperties": false,
@@ -11,8 +11,8 @@
     "experimentId": { "type": "string", "minLength": 3 },
     "experimentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "baselineVersion": { "type": "integer", "minimum": 1 },
-    "approver": { "type": "string", "minLength": 1 },
+    "approver": { "type": "string", "minLength": 1, "pattern": "\\S" },
     "approvedAt": { "type": "string", "minLength": 20 },
-    "reason": { "type": "string", "minLength": 3 }
+    "reason": { "type": "string", "minLength": 3, "pattern": "\\S" }
   }
 }

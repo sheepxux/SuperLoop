@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/experiment.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/experiment.schema.json",
   "title": "Strategy Evolution Experiment",
   "type": "object",
   "additionalProperties": false,

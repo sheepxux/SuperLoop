@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(scriptDir, "../../..");
-const pinnedFallbackPackage = "github:sheepxux/Loop-Engineering#v1.0.2";
+const pinnedFallbackPackage = "github:sheepxux/Loop-Engineering#v1.1.0";
 const expectedRuntimeVersion = pinnedFallbackPackage.split("#v").at(-1);
 const candidates = [
   path.join(packageRoot, "bin", "loopctl.js"),

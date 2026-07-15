@@ -7,7 +7,7 @@ import test from "node:test";
 import { main } from "../src/cli.js";
 import { readData, sha256File, sha256Json, withFileLock, writeJson, writeYaml } from "../src/fs-utils.js";
 import { acquireLease, releaseLease } from "../src/lease.js";
-import { migrateLoopState, nextRun, recordExperiment, recordRun, resolveLoop, rollbackStrategy } from "../src/loop-state.js";
+import { migrateLoopState, nextRun, recordExperiment, recordRun, reopenWorkPlanPart, resolveGoalAttention, resolveLoop, rollbackStrategy } from "../src/loop-state.js";
 
 function initLoop() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-runtime-"));
@@ -119,16 +119,31 @@ function bindEvaluatorEvidence(loop, log) {
     next.strategy = { version: strategy.version, sha256: sha256Json(strategy) };
   }
   for (const result of next.results) {
+    const part = loop.spec.workPlan?.parts.find((entry) => entry.id === result.itemId) || null;
+    if (part) {
+      result.partDefinitionSha256 ??= sha256Json(part);
+      result.artifacts ??= part.expectedArtifacts.map((artifact) => {
+        const reference = `artifacts/${artifact.id}-${slug(next.runId)}.json`;
+        const artifactPath = path.join(loop.loopDir, reference);
+        writeJson(artifactPath, { id: artifact.id, runId: next.runId });
+        return {
+          id: artifact.id,
+          reference,
+          sha256: sha256File(artifactPath)
+        };
+      });
+    }
     const contextId = `eval-${next.runId}-${result.itemId}`;
     const artifact = path.join(loop.loopDir, "evaluators", `${slug(next.runId)}-${slug(result.itemId)}.json`);
-    const evidence = loop.spec.verification.requiredEvidence.map((type) => ({
+    const effectiveVerification = part?.verification || loop.spec.verification;
+    const evidence = effectiveVerification.requiredEvidence.map((type) => ({
       type,
       summary: `${type} evidence captured.`
     }));
-    for (const command of loop.spec.verification.commands) {
+    for (const command of effectiveVerification.commands) {
       evidence.push({ type: "command", summary: `${command} completed.`, command, exitCode: result.verdict === "pass" ? 0 : 1 });
     }
-    writeJson(artifact, {
+    const evaluatorResult = {
       apiVersion: "loop-engineering/v1",
       loop: loop.spec.metadata.name,
       itemId: result.itemId,
@@ -141,7 +156,17 @@ function bindEvaluatorEvidence(loop, log) {
       evidence,
       reasons: result.verdict === "pass" ? [] : [result.summary],
       nextAction: result.verdict === "pass" ? "accept" : "retry"
-    });
+    };
+    if (part) {
+      evaluatorResult.partDefinitionSha256 = result.partDefinitionSha256;
+      evaluatorResult.criteria = part.acceptanceCriteria.map((criterion) => ({
+        id: criterion.id,
+        verdict: result.verdict === "pass" ? "pass" : "fail",
+        summary: `${criterion.id} evaluated.`
+      }));
+      evaluatorResult.artifacts = (result.artifacts || []).map((entry) => ({ ...entry }));
+    }
+    writeJson(artifact, evaluatorResult);
     result.evaluator = {
       artifact: path.relative(loop.loopDir, artifact),
       sha256: sha256File(artifact),
@@ -149,6 +174,132 @@ function bindEvaluatorEvidence(loop, log) {
     };
   }
   return next;
+}
+
+async function initWorkPlanLoop(mutator = null) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-work-plan-"));
+  const source = path.join(tmp, "loop.yaml");
+  const spec = readData("examples/ci-triage/loop.yaml");
+  spec.safety.budgets.maxDailyRuns = 24;
+  spec.workPlan = {
+    mode: "finite",
+    maxPartsPerRun: 1,
+    parts: [
+      {
+        id: "part-a",
+        title: "Establish the bounded fix",
+        objective: "Produce the first independently verifiable project artifact.",
+        dependsOn: [],
+        goalCriteria: [spec.goal.acceptanceCriteria[0]],
+        acceptanceCriteria: [{
+          id: "part-a-verified",
+          statement: "The first artifact is tied to the source failure.",
+          evidence: ["tests"],
+          passCondition: "The targeted test passes and the artifact is recorded."
+        }],
+        expectedArtifacts: [{ id: "artifact-a", description: "Verified first-part output." }]
+      },
+      {
+        id: "part-b",
+        title: "Integrate and verify the result",
+        objective: "Produce the dependent integration artifact and finish the plan.",
+        dependsOn: ["part-a"],
+        goalCriteria: spec.goal.acceptanceCriteria.slice(1),
+        acceptanceCriteria: [{
+          id: "part-b-verified",
+          statement: "The integrated result passes independent checks.",
+          evidence: ["tests", "typecheck", "diff-review"],
+          passCondition: "Every configured check passes and the artifact is recorded."
+        }],
+        expectedArtifacts: [{ id: "artifact-b", description: "Verified integrated output." }]
+      }
+    ],
+    completion: {
+      evaluator: "goal-evaluator",
+      independent: true,
+      requiredEvidence: ["tests", "typecheck", "diff-review"],
+      commands: ["npm test", "npm run typecheck"],
+      maxAttempts: 2
+    }
+  };
+  if (mutator) mutator(spec);
+  writeYaml(source, spec);
+  await main(["init", "finite-project", "--from", source, "--out", tmp]);
+  return path.join(tmp, "finite-project");
+}
+
+function workPlanRun(loop, { runId, at, itemId, verdict = "pass" }) {
+  return bindEvaluatorEvidence(loop, {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    runId,
+    startedAt: at,
+    finishedAt: new Date(Date.parse(at) + 60_000).toISOString(),
+    status: verdict === "pass" ? "passed" : verdict === "fail" ? "failed" : verdict,
+    discovered: [],
+    results: [{ itemId, verdict, summary: `${itemId} ${verdict}` }],
+    budget: { runtimeMinutes: 1, itemsAttempted: 1, estimatedUsd: 0.1 }
+  });
+}
+
+function bindGoalEvaluation(loop, basisSha256, {
+  runId,
+  at,
+  verdict = "pass",
+  affectedParts = [],
+  nextAction = verdict === "pass" ? "complete" : verdict === "fail" ? "resume-parts" : "ask-human"
+}) {
+  const finishedAt = new Date(Date.parse(at) + 60_000).toISOString();
+  const contextId = `goal-${runId}`;
+  const artifactPath = path.join(loop.loopDir, "evaluators", `${runId}-goal.json`);
+  const evidence = loop.spec.workPlan.completion.requiredEvidence.map((type) => ({
+    type,
+    summary: `${type} captured for the complete Goal.`
+  }));
+  for (const command of loop.spec.workPlan.completion.commands) {
+    evidence.push({ type: "command", summary: `${command} completed.`, command, exitCode: 0 });
+  }
+  writeJson(artifactPath, {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    basisSha256,
+    evaluator: {
+      identity: loop.spec.workPlan.completion.evaluator,
+      contextId,
+      evaluatedAt: finishedAt
+    },
+    verdict,
+    criteria: loop.spec.goal.acceptanceCriteria.map((statement, index) => ({
+      statement,
+      verdict: verdict === "fail" && index === 0 ? "fail" : "pass",
+      summary: `${statement} evaluated.`
+    })),
+    evidence,
+    reasons: verdict === "pass" ? [] : ["The integrated Goal still needs correction."],
+    affectedParts,
+    nextAction
+  });
+  return {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    runId,
+    startedAt: at,
+    finishedAt,
+    status: verdict === "pass" ? "passed" : verdict === "fail" ? "failed" : verdict,
+    discovered: [],
+    results: [],
+    goalEvaluation: {
+      verdict,
+      summary: verdict === "pass" ? "The complete Goal passed." : "The complete Goal needs attention.",
+      basisSha256,
+      evaluator: {
+        artifact: path.relative(loop.loopDir, artifactPath),
+        sha256: sha256File(artifactPath),
+        contextId
+      }
+    },
+    budget: { runtimeMinutes: 1, itemsAttempted: 0, estimatedUsd: 0.1 }
+  };
 }
 
 function materializeExperiment(loop, experiment, { makeDue = true } = {}) {
@@ -254,6 +405,502 @@ test("next accepts a loop directory expressed as a relative path", async () => {
   assert.equal(plan.itemsAllowed, 3);
 });
 
+test("finite work plans initialize durable parts and schedule only dependency-eligible work", async () => {
+  const loopDir = await initWorkPlanLoop();
+  const loop = resolveLoop(loopDir);
+  const state = readData(loop.statePath);
+  assert.equal(state.lifecycle.status, "active");
+  assert.deepEqual(state.items.map((item) => [item.id, item.status]), [
+    ["part-a", "open"],
+    ["part-b", "open"]
+  ]);
+
+  const plan = nextRun(loop, new Date("2026-07-14T00:00:00Z"));
+  assert.equal(plan.phase, "work");
+  assert.equal(plan.itemsAllowed, 1);
+  assert.deepEqual(plan.eligibleParts.map((part) => part.id), ["part-a"]);
+  assert.deepEqual(plan.lockedParts.map((part) => [part.id, part.waitingOn]), [["part-b", ["part-a"]]]);
+  assert.deepEqual(plan.retryQueue.map((part) => part.id), ["part-a"]);
+
+  const locked = workPlanRun(loop, {
+    runId: "finite-locked-b",
+    at: "2026-07-14T00:01:00Z",
+    itemId: "part-b"
+  });
+  assert.throws(
+    () => recordRun(loop, locked, { now: new Date("2026-07-14T00:03:00Z") }),
+    /not eligible in the pre-run work-plan state/
+  );
+
+  const discovered = workPlanRun(loop, {
+    runId: "finite-discovery",
+    at: "2026-07-14T00:04:00Z",
+    itemId: "part-a"
+  });
+  discovered.discovered = [{ id: "unapproved", summary: "outside plan", source: "model" }];
+  assert.throws(
+    () => recordRun(loop, discovered, { now: new Date("2026-07-14T00:06:00Z") }),
+    /cannot discover items outside the approved fixed plan/
+  );
+
+  const noWork = {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    runId: "finite-false-no-work",
+    startedAt: "2026-07-14T00:07:00Z",
+    finishedAt: "2026-07-14T00:08:00Z",
+    status: "no-work",
+    discovered: [],
+    results: [],
+    budget: { runtimeMinutes: 1, itemsAttempted: 0, estimatedUsd: 0 }
+  };
+  assert.throws(
+    () => recordRun(loop, noWork, { now: new Date("2026-07-14T00:09:00Z") }),
+    /cannot report no-work while an approved Part is eligible/
+  );
+});
+
+test("finite work plans retry an eligible failed Part before untouched eligible Parts", async () => {
+  const loopDir = await initWorkPlanLoop((spec) => {
+    spec.workPlan.maxPartsPerRun = 2;
+    spec.workPlan.parts[1].dependsOn = [];
+    spec.discovery.maxItemsPerRun = 2;
+    spec.safety.budgets.maxItemsPerRun = 2;
+  });
+  let loop = resolveLoop(loopDir);
+  assert.deepEqual(
+    nextRun(loop, new Date("2026-07-14T00:10:00Z")).eligibleParts.map((part) => part.id),
+    ["part-a", "part-b"]
+  );
+
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-retry-priority-b",
+    at: "2026-07-14T00:11:00Z",
+    itemId: "part-b",
+    verdict: "fail"
+  }), { now: new Date("2026-07-14T00:13:00Z") });
+
+  loop = resolveLoop(loopDir);
+  assert.deepEqual(
+    nextRun(loop, new Date("2026-07-14T00:14:00Z")).eligibleParts.map((part) => part.id),
+    ["part-b", "part-a"]
+  );
+});
+
+test("finite Parts can use heterogeneous evidence and commands without inheriting unrelated checks", async () => {
+  const loopDir = await initWorkPlanLoop((spec) => {
+    spec.workPlan.parts[0].acceptanceCriteria[0].evidence = ["source-trace-review"];
+    spec.workPlan.parts[0].verification = {
+      requiredEvidence: ["source-trace-review"],
+      commands: []
+    };
+  });
+  const loop = resolveLoop(loopDir);
+  const run = workPlanRun(loop, {
+    runId: "finite-heterogeneous-evidence-a",
+    at: "2026-07-14T00:20:00Z",
+    itemId: "part-a"
+  });
+  const evaluator = readData(path.resolve(loop.loopDir, run.results[0].evaluator.artifact));
+  assert.deepEqual(evaluator.evidence.map((entry) => entry.type), ["source-trace-review"]);
+  assert.equal(evaluator.evidence.some((entry) => entry.command), false);
+
+  const outcome = recordRun(loop, run, { now: new Date("2026-07-14T00:22:00Z") });
+  assert.equal(outcome.state.items[0].status, "passed");
+});
+
+test("finite work plans require exact part evidence and complete only after a full Goal evaluation", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+
+  const badDigest = workPlanRun(loop, {
+    runId: "finite-bad-definition",
+    at: "2026-07-14T01:00:00Z",
+    itemId: "part-a"
+  });
+  badDigest.results[0].partDefinitionSha256 = "0".repeat(64);
+  assert.throws(
+    () => recordRun(loop, badDigest, { now: new Date("2026-07-14T01:02:00Z") }),
+    /does not bind its exact work-plan part definition/
+  );
+
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-pass-a",
+    at: "2026-07-14T01:10:00Z",
+    itemId: "part-a"
+  }), { now: new Date("2026-07-14T01:12:00Z") });
+  loop = resolveLoop(loopDir);
+  assert.deepEqual(nextRun(loop, new Date("2026-07-14T01:15:00Z")).eligibleParts.map((part) => part.id), ["part-b"]);
+
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-pass-b",
+    at: "2026-07-14T01:20:00Z",
+    itemId: "part-b"
+  }), { now: new Date("2026-07-14T01:22:00Z") });
+  loop = resolveLoop(loopDir);
+  const finalPlan = nextRun(loop, new Date("2026-07-14T01:25:00Z"));
+  assert.equal(finalPlan.phase, "goal-evaluation");
+  assert.match(finalPlan.goalEvaluationBasisSha256, /^[a-f0-9]{64}$/);
+
+  const goalPass = bindGoalEvaluation(loop, finalPlan.goalEvaluationBasisSha256, {
+    runId: "finite-goal-pass",
+    at: "2026-07-14T01:30:00Z"
+  });
+  const completed = recordRun(loop, goalPass, { now: new Date("2026-07-14T01:32:00Z") });
+  assert.equal(completed.state.lifecycle.status, "completed");
+  assert.equal(completed.state.lifecycle.goalEvaluationAttempts, 1);
+  loop = resolveLoop(loopDir);
+  assert.equal(recordRun(loop, goalPass, { now: new Date("2026-07-14T01:33:00Z") }).replayed, true);
+  const terminal = nextRun(loop, new Date("2026-07-14T01:35:00Z"));
+  assert.equal(terminal.phase, "completed");
+  assert.equal(terminal.ok, false);
+  assert.throws(
+    () => recordRun(loop, workPlanRun(loop, {
+      runId: "finite-after-complete",
+      at: "2026-07-14T01:40:00Z",
+      itemId: "part-a"
+    }), { now: new Date("2026-07-14T01:42:00Z") }),
+    /completed; no new run/
+  );
+});
+
+test("finite Part gates require every accepted artifact file and exact digest", async () => {
+  const loopDir = await initWorkPlanLoop();
+  const loop = resolveLoop(loopDir);
+
+  const missing = workPlanRun(loop, {
+    runId: "finite-missing-artifact",
+    at: "2026-07-14T01:40:00Z",
+    itemId: "part-a"
+  });
+  fs.rmSync(path.resolve(loop.loopDir, missing.results[0].artifacts[0].reference));
+  assert.throws(
+    () => recordRun(loop, missing, { now: new Date("2026-07-14T01:42:00Z") }),
+    /artifact .* not found/
+  );
+
+  const mismatch = workPlanRun(loop, {
+    runId: "finite-mismatched-artifact",
+    at: "2026-07-14T01:45:00Z",
+    itemId: "part-a"
+  });
+  fs.appendFileSync(path.resolve(loop.loopDir, mismatch.results[0].artifacts[0].reference), "tampered\n");
+  assert.throws(
+    () => recordRun(loop, mismatch, { now: new Date("2026-07-14T01:47:00Z") }),
+    /digest does not match/
+  );
+
+  const accepted = workPlanRun(loop, {
+    runId: "finite-artifact-anchor",
+    at: "2026-07-14T01:50:00Z",
+    itemId: "part-a"
+  });
+  recordRun(loop, accepted, { now: new Date("2026-07-14T01:52:00Z") });
+  fs.appendFileSync(path.resolve(loop.loopDir, accepted.results[0].artifacts[0].reference), "changed later\n");
+  assert.throws(
+    () => nextRun(resolveLoop(loopDir), new Date("2026-07-14T01:55:00Z")),
+    /digest does not match/
+  );
+});
+
+test("different finite Parts cannot reuse the same accepted artifact snapshot", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+  const partA = workPlanRun(loop, {
+    runId: "finite-unique-snapshot-a",
+    at: "2026-07-14T01:56:00Z",
+    itemId: "part-a"
+  });
+  recordRun(loop, partA, { now: new Date("2026-07-14T01:58:00Z") });
+
+  loop = resolveLoop(loopDir);
+  const partB = workPlanRun(loop, {
+    runId: "finite-reused-snapshot-b",
+    at: "2026-07-14T02:00:00Z",
+    itemId: "part-b"
+  });
+  const accepted = partA.results[0].artifacts[0];
+  partB.results[0].artifacts[0] = {
+    id: "artifact-b",
+    reference: accepted.reference,
+    sha256: accepted.sha256
+  };
+  const evaluatorPath = path.resolve(loop.loopDir, partB.results[0].evaluator.artifact);
+  const evaluator = readData(evaluatorPath);
+  evaluator.artifacts = structuredClone(partB.results[0].artifacts);
+  writeJson(evaluatorPath, evaluator);
+  partB.results[0].evaluator.sha256 = sha256File(evaluatorPath);
+
+  assert.throws(
+    () => recordRun(loop, partB, { now: new Date("2026-07-14T02:02:00Z") }),
+    /reuses accepted snapshot/
+  );
+});
+
+test("failed final Goal evaluation reopens affected parts and descendants, then pauses at its attempt cap", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-reopen-a1",
+    at: "2026-07-14T02:00:00Z",
+    itemId: "part-a"
+  }), { now: new Date("2026-07-14T02:02:00Z") });
+  loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-reopen-b1",
+    at: "2026-07-14T02:10:00Z",
+    itemId: "part-b"
+  }), { now: new Date("2026-07-14T02:12:00Z") });
+  loop = resolveLoop(loopDir);
+  let plan = nextRun(loop, new Date("2026-07-14T02:15:00Z"));
+  let outcome = recordRun(loop, bindGoalEvaluation(loop, plan.goalEvaluationBasisSha256, {
+    runId: "finite-goal-fail-1",
+    at: "2026-07-14T02:20:00Z",
+    verdict: "fail",
+    affectedParts: ["part-a"]
+  }), { now: new Date("2026-07-14T02:22:00Z") });
+  assert.deepEqual(outcome.state.items.map((item) => [item.id, item.status, item.artifacts.length]), [
+    ["part-a", "open", 0],
+    ["part-b", "open", 0]
+  ]);
+  assert.equal(outcome.state.lifecycle.goalEvaluationAttempts, 1);
+  loop = resolveLoop(loopDir);
+  assert.deepEqual(nextRun(loop, new Date("2026-07-14T02:25:00Z")).eligibleParts.map((part) => part.id), ["part-a"]);
+
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-reopen-a2",
+    at: "2026-07-14T02:30:00Z",
+    itemId: "part-a"
+  }), { now: new Date("2026-07-14T02:32:00Z") });
+  loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-reopen-b2",
+    at: "2026-07-14T02:40:00Z",
+    itemId: "part-b"
+  }), { now: new Date("2026-07-14T02:42:00Z") });
+  loop = resolveLoop(loopDir);
+  plan = nextRun(loop, new Date("2026-07-14T02:45:00Z"));
+  outcome = recordRun(loop, bindGoalEvaluation(loop, plan.goalEvaluationBasisSha256, {
+    runId: "finite-goal-fail-2",
+    at: "2026-07-14T02:50:00Z",
+    verdict: "fail",
+    affectedParts: ["part-a"]
+  }), { now: new Date("2026-07-14T02:52:00Z") });
+  assert.equal(outcome.state.lifecycle.goalEvaluationAttempts, 2);
+  assert.equal(outcome.state.paused, true);
+  assert.match(outcome.state.pauseReason, /attempt budget exhausted/);
+  await assert.rejects(() => main(["resume", loopDir]), /attempt budget is exhausted/);
+  loop = resolveLoop(loopDir);
+  const exhausted = nextRun(loop, new Date("2026-07-14T02:55:00Z"));
+  assert.equal(exhausted.ok, false);
+  assert.match(exhausted.reasons.join("\n"), /Goal evaluation attempt budget exhausted/);
+});
+
+test("blocked final Goal evaluation pauses a finite plan without claiming completion", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-blocked-a",
+    at: "2026-07-14T02:50:00Z",
+    itemId: "part-a"
+  }), { now: new Date("2026-07-14T02:52:00Z") });
+  loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-blocked-b",
+    at: "2026-07-14T02:55:00Z",
+    itemId: "part-b"
+  }), { now: new Date("2026-07-14T02:57:00Z") });
+  loop = resolveLoop(loopDir);
+  const plan = nextRun(loop, new Date("2026-07-14T03:00:00Z"));
+  const outcome = recordRun(loop, bindGoalEvaluation(loop, plan.goalEvaluationBasisSha256, {
+    runId: "finite-goal-blocked",
+    at: "2026-07-14T03:10:00Z",
+    verdict: "blocked"
+  }), { now: new Date("2026-07-14T03:12:00Z") });
+  assert.equal(outcome.state.lifecycle.status, "active");
+  assert.equal(outcome.state.lifecycle.lastGoalEvaluation.verdict, "blocked");
+  assert.equal(outcome.state.paused, true);
+  assert.match(outcome.state.pauseReason, /requires attention/);
+  await assert.rejects(() => main(["resume", loopDir]), /audited resolution/);
+  const resolved = resolveGoalAttention(loopDir, {
+    actor: "release-owner",
+    reason: "The missing final-review prerequisite is now available.",
+    now: new Date("2026-07-14T03:15:00Z")
+  });
+  assert.equal(resolved.resolution.evidenceRunId, "finite-goal-blocked");
+  loop = resolveLoop(loopDir);
+  assert.equal(nextRun(loop, new Date("2026-07-14T03:16:00Z")).phase, "goal-evaluation");
+});
+
+test("blocked Part requires an audited reopen before it becomes eligible again", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-part-blocked",
+    at: "2026-07-14T04:00:00Z",
+    itemId: "part-a",
+    verdict: "blocked"
+  }), { now: new Date("2026-07-14T04:02:00Z") });
+  loop = resolveLoop(loopDir);
+  assert.equal(nextRun(loop, new Date("2026-07-14T04:03:00Z")).ok, false);
+  const reopened = reopenWorkPlanPart(loopDir, {
+    partId: "part-a",
+    actor: "project-owner",
+    reason: "The required source is now available.",
+    now: new Date("2026-07-14T04:04:00Z")
+  });
+  assert.equal(reopened.resolution.evidenceRunId, "finite-part-blocked");
+  loop = resolveLoop(loopDir);
+  const plan = nextRun(loop, new Date("2026-07-14T04:05:00Z"));
+  assert.equal(plan.ok, true);
+  assert.deepEqual(plan.eligibleParts.map((part) => part.id), ["part-a"]);
+});
+
+test("finite state replay rejects unaudited Part reopening and lowered retry counters", async () => {
+  const blockedDir = await initWorkPlanLoop();
+  let loop = resolveLoop(blockedDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-forged-reopen",
+    at: "2026-07-14T04:10:00Z",
+    itemId: "part-a",
+    verdict: "blocked"
+  }), { now: new Date("2026-07-14T04:12:00Z") });
+  let state = readData(loop.statePath);
+  state.items[0].status = "open";
+  state.items[0].lastResult = null;
+  writeJson(loop.statePath, state);
+  assert.throws(
+    () => nextRun(resolveLoop(blockedDir), new Date("2026-07-14T04:15:00Z")),
+    /does not match replay/
+  );
+
+  const retryDir = await initWorkPlanLoop();
+  loop = resolveLoop(retryDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-fail-first",
+    at: "2026-07-14T04:20:00Z",
+    itemId: "part-a",
+    verdict: "fail"
+  }), { now: new Date("2026-07-14T04:22:00Z") });
+  loop = resolveLoop(retryDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-fail-retry",
+    at: "2026-07-14T04:25:00Z",
+    itemId: "part-a",
+    verdict: "fail"
+  }), { now: new Date("2026-07-14T04:27:00Z") });
+  state = readData(loop.statePath);
+  assert.equal(state.items[0].retries, 1);
+  state.items[0].retries = 0;
+  writeJson(loop.statePath, state);
+  assert.throws(
+    () => nextRun(resolveLoop(retryDir), new Date("2026-07-14T04:30:00Z")),
+    /does not match replay/
+  );
+});
+
+test("finite state replay rejects unaudited Goal resume and lowered attempt counters", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-goal-anchor-a",
+    at: "2026-07-14T04:35:00Z",
+    itemId: "part-a"
+  }), { now: new Date("2026-07-14T04:37:00Z") });
+  loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-goal-anchor-b",
+    at: "2026-07-14T04:40:00Z",
+    itemId: "part-b"
+  }), { now: new Date("2026-07-14T04:42:00Z") });
+  loop = resolveLoop(loopDir);
+  const plan = nextRun(loop, new Date("2026-07-14T04:43:00Z"));
+  recordRun(loop, bindGoalEvaluation(loop, plan.goalEvaluationBasisSha256, {
+    runId: "finite-goal-anchor-blocked",
+    at: "2026-07-14T04:45:00Z",
+    verdict: "blocked"
+  }), { now: new Date("2026-07-14T04:47:00Z") });
+
+  let state = readData(loop.statePath);
+  state.paused = false;
+  state.pauseReason = null;
+  writeJson(loop.statePath, state);
+  assert.throws(
+    () => nextRun(resolveLoop(loopDir), new Date("2026-07-14T04:50:00Z")),
+    /requires the finite Loop to remain paused/
+  );
+
+  state = readData(loop.statePath);
+  state.paused = true;
+  state.pauseReason = "Final Goal evaluation requires attention.";
+  state.lifecycle.goalEvaluationAttempts = 0;
+  writeJson(loop.statePath, state);
+  assert.throws(
+    () => nextRun(resolveLoop(loopDir), new Date("2026-07-14T04:51:00Z")),
+    /lifecycle counters.*do not match replay/
+  );
+});
+
+test("failed Goal criteria must trace exactly to affected Part roots", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-trace-a",
+    at: "2026-07-14T05:00:00Z",
+    itemId: "part-a"
+  }), { now: new Date("2026-07-14T05:02:00Z") });
+  loop = resolveLoop(loopDir);
+  recordRun(loop, workPlanRun(loop, {
+    runId: "finite-trace-b",
+    at: "2026-07-14T05:10:00Z",
+    itemId: "part-b"
+  }), { now: new Date("2026-07-14T05:12:00Z") });
+  loop = resolveLoop(loopDir);
+  const plan = nextRun(loop, new Date("2026-07-14T05:15:00Z"));
+  const mismatched = bindGoalEvaluation(loop, plan.goalEvaluationBasisSha256, {
+    runId: "finite-trace-mismatch",
+    at: "2026-07-14T05:20:00Z",
+    verdict: "fail",
+    affectedParts: ["part-b"]
+  });
+  assert.throws(
+    () => recordRun(loop, mismatched, { now: new Date("2026-07-14T05:22:00Z") }),
+    /not traced to an affected Part/
+  );
+});
+
+test("finite passed state cannot be forged without immutable Part run bindings", async () => {
+  const loopDir = await initWorkPlanLoop();
+  const loop = resolveLoop(loopDir);
+  const state = readData(loop.statePath);
+  for (const [index, item] of state.items.entries()) {
+    item.status = "passed";
+    item.artifacts = loop.spec.workPlan.parts[index].expectedArtifacts.map((artifact) => ({
+      id: artifact.id,
+      reference: `artifacts/${artifact.id}.txt`,
+      sha256: sha256Json({ forged: artifact.id })
+    }));
+  }
+  writeJson(loop.statePath, state);
+  assert.throws(() => nextRun(loop), /missing its immutable run\/evaluator binding/);
+});
+
+test("finite work-plan state fails closed when its fixed item set or lifecycle is removed", async () => {
+  const loopDir = await initWorkPlanLoop();
+  let loop = resolveLoop(loopDir);
+  const state = readData(loop.statePath);
+  state.items.pop();
+  writeJson(loop.statePath, state);
+  assert.throws(() => nextRun(loop), /must exactly match.*workPlan\.parts/i);
+
+  const fresh = await initWorkPlanLoop();
+  loop = resolveLoop(fresh);
+  const missingLifecycle = readData(loop.statePath);
+  delete missingLifecycle.lifecycle;
+  writeJson(loop.statePath, missingLifecycle);
+  assert.throws(() => nextRun(loop), /missing lifecycle metadata/);
+});
+
 test("state timestamps and accounting days fail closed on invalid or future values", async () => {
   const loopDir = await initLoop();
   let loop = resolveLoop(loopDir);
@@ -281,16 +928,85 @@ test("state timestamps and accounting days fail closed on invalid or future valu
   );
 });
 
-test("state lock recovers an ownerless stale mkdir crash", () => {
+test("state lock fails closed on an ownerless canonical directory", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-ownerless-lock-"));
   const lock = path.join(tmp, "state-update.lock");
   fs.mkdirSync(lock);
   const stale = new Date(Date.now() - 60_000);
   fs.utimesSync(lock, stale, stale);
   let entered = false;
-  withFileLock(lock, () => { entered = true; }, { staleMs: 1, timeoutMs: 500 });
-  assert.equal(entered, true);
+  assert.throws(
+    () => withFileLock(lock, () => { entered = true; }, { staleMs: 1, timeoutMs: 50 }),
+    /Timed out waiting for state lock/
+  );
+  assert.equal(entered, false);
+  assert.equal(fs.existsSync(lock), true);
+});
+
+test("state-lock acquisition gate fails closed after an acquisition crash", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-orphaned-acquire-"));
+  const lock = path.join(tmp, "state-update.lock");
+  const gate = `${lock}.acquire`;
+  fs.mkdirSync(gate);
+  writeJson(path.join(gate, "owner.json"), {
+    token: "crashed-acquirer",
+    pid: 99999999,
+    hostname: os.hostname(),
+    acquiredAt: "2020-01-01T00:00:00Z"
+  });
+
+  let entered = false;
+  assert.throws(
+    () => withFileLock(lock, () => { entered = true; }, { staleMs: 1, timeoutMs: 50 }),
+    /acquisition gate.*inspected and cleared manually/
+  );
+  assert.equal(entered, false);
+  assert.equal(fs.existsSync(gate), true);
+});
+
+test("state lock remains owned until an asynchronous callback settles", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-async-lock-"));
+  const lock = path.join(tmp, "state-update.lock");
+  let finish;
+  const pending = withFileLock(lock, () => new Promise((resolve) => { finish = resolve; }));
+
+  assert.equal(fs.existsSync(lock), true);
+  finish();
+  await pending;
   assert.equal(fs.existsSync(lock), false);
+});
+
+test("state lock is released when a callback returns a throwing thenable", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-throwing-thenable-"));
+  const lock = path.join(tmp, "state-update.lock");
+  const malformedThenable = Object.defineProperty({}, "then", {
+    get() {
+      throw new Error("malformed thenable");
+    }
+  });
+
+  assert.throws(() => withFileLock(lock, () => malformedThenable), /malformed thenable/);
+  assert.equal(fs.existsSync(lock), false);
+});
+
+test("state lock release fails closed if callback work loses ownership", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-lost-lock-"));
+  const missingLock = path.join(tmp, "missing-owner.lock");
+  assert.throws(
+    () => withFileLock(missingLock, () => fs.rmSync(missingLock, { recursive: true })),
+    /lock disappeared before its owner released/
+  );
+
+  const replacedLock = path.join(tmp, "replaced-owner.lock");
+  assert.throws(
+    () => withFileLock(replacedLock, () => {
+      const ownerPath = path.join(replacedLock, "owner.json");
+      writeJson(ownerPath, { ...readData(ownerPath), token: "replacement-owner" });
+    }),
+    /lock ownership changed before release/
+  );
+  assert.equal(fs.existsSync(replacedLock), true);
+  assert.equal(readData(path.join(replacedLock, "owner.json")).token, "replacement-owner");
 });
 
 test("concurrent stale state-lock reclaim never overlaps callbacks", async () => {
@@ -298,6 +1014,8 @@ test("concurrent stale state-lock reclaim never overlaps callbacks", async () =>
   const lock = path.join(tmp, "state-update.lock");
   const marker = path.join(tmp, "critical-section");
   const trigger = path.join(tmp, "go");
+  const readyDir = path.join(tmp, "ready");
+  fs.mkdirSync(readyDir);
   fs.mkdirSync(lock);
   writeJson(path.join(lock, "owner.json"), {
     token: "dead-owner",
@@ -310,23 +1028,57 @@ test("concurrent stale state-lock reclaim never overlaps callbacks", async () =>
   const moduleUrl = new URL("../src/fs-utils.js", import.meta.url).href;
   const script = `
 import fs from "node:fs";
+import path from "node:path";
 import { withFileLock } from ${JSON.stringify(moduleUrl)};
 const wait = new Int32Array(new SharedArrayBuffer(4));
+const readyPath = path.join(process.argv[4], String(process.pid));
+fs.writeFileSync(readyPath, "ready\\n");
 while (!fs.existsSync(process.argv[3])) Atomics.wait(wait, 0, 0, 2);
 withFileLock(process.argv[1], () => {
   const handle = fs.openSync(process.argv[2], "wx");
   try { Atomics.wait(wait, 0, 0, 40); } finally { fs.closeSync(handle); fs.unlinkSync(process.argv[2]); }
 }, { staleMs: 1, timeoutMs: 5_000 });
+fs.writeFileSync(readyPath, "done\\n");
 `;
-  const children = Array.from({ length: 8 }, () => new Promise((resolve) => {
-    const child = spawn(process.execPath, ["--input-type=module", "--eval", script, lock, marker, trigger]);
+  const contenderCount = 16;
+  const contenders = Array.from({ length: contenderCount }, () => {
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", script, lock, marker, trigger, readyDir]);
     let stderr = "";
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("close", (code) => resolve({ code, stderr }));
-  }));
+    const result = new Promise((resolve) => {
+      child.on("close", (code) => resolve({ code, stderr }));
+    });
+    return { child, result };
+  });
+  const readyDeadline = Date.now() + 10_000;
+  while (fs.readdirSync(readyDir).length !== contenderCount) {
+    if (Date.now() >= readyDeadline) {
+      for (const contender of contenders) contender.child.kill();
+      const failed = await Promise.all(contenders.map((contender) => contender.result));
+      throw new Error(
+        `Timed out waiting for state-lock contenders.\n${failed.map((entry) => entry.stderr).join("\n")}`
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
   fs.writeFileSync(trigger, "go\n");
-  const outcomes = await Promise.all(children);
-  assert.deepEqual(outcomes.map((entry) => entry.code), Array(8).fill(0), outcomes.map((entry) => entry.stderr).join("\n"));
+  const outcomes = await Promise.all(contenders.map((contender) => contender.result));
+  assert.deepEqual(
+    outcomes.map((entry) => entry.code),
+    Array(contenderCount).fill(0),
+    outcomes.map((entry) => entry.stderr).join("\n")
+  );
+  assert.deepEqual(
+    fs.readdirSync(readyDir).map((entry) => fs.readFileSync(path.join(readyDir, entry), "utf8")),
+    Array(contenderCount).fill("done\n"),
+    "every contender must complete exactly one callback"
+  );
+  assert.equal(fs.existsSync(lock), false, "the canonical lock must be released after every callback");
+  assert.deepEqual(
+    fs.readdirSync(tmp).filter((entry) => entry.startsWith("state-update.lock.")),
+    [],
+    "lock acquisition must not leave prepared, gate, stale, or released artifacts"
+  );
 });
 
 test("runtime fails closed when durable state is missing or belongs to another loop", async () => {
@@ -1377,6 +2129,22 @@ test("human-reviewed strategy evolution stages then promotes a benchmark winner"
     "--out",
     approvalPath
   ]);
+  await assert.rejects(
+    () => main([
+      "approval",
+      "create",
+      loopDir,
+      "--experiment",
+      experimentInput,
+      "--approver",
+      "human-reviewer",
+      "--reason",
+      "Matched benchmark evidence passed review.",
+      "--out",
+      approvalPath
+    ]),
+    /Refusing to overwrite existing strategy approval/
+  );
   const promoted = recordExperiment(loop, experiment, { approval: readData(approvalPath) });
   assert.equal(promoted.assessment.outcome, "promoted");
   assert.equal(readData(path.join(loopDir, "strategy.json")).version, 2);
@@ -1824,6 +2592,18 @@ test("rendered executor skill is an operational playbook", async () => {
   assert.match(skill, /git worktree add/);
   assert.match(skill, /loopctl check evaluator/);
   assert.match(skill, /gh run list --status failure/);
+});
+
+test("rendered finite executor honors task-directory isolation without Git instructions", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-finite-skill-"));
+  await main(["render", "codex", "examples/finite-project/loop.yaml", "--out", tmp]);
+  const skill = fs.readFileSync(
+    path.join(tmp, ".agents", "skills", "finite-project", "SKILL.md"),
+    "utf8"
+  );
+
+  assert.match(skill, /caller-provided isolated task directory/);
+  assert.doesNotMatch(skill, /git worktree add|git worktree remove/);
 });
 
 test("rendered evolution skill loads strategy and uses benchmark-gated promotion", async () => {

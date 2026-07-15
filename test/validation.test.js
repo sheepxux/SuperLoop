@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { main } from "../src/cli.js";
+import { runDoctor } from "../src/doctor.js";
 import { readData } from "../src/fs-utils.js";
+import { chatgptSkill, evaluatorPrompt, workerPrompt } from "../src/skill-content.js";
 import { validateSkillPackage } from "../src/skill-package.js";
 import { validateLoopSpec } from "../src/validation.js";
 
@@ -29,6 +31,14 @@ test("valid example loop passes validation", () => {
   const result = validateLoopSpec(example, "ci-triage");
   assert.equal(result.ok, true);
   assert.deepEqual(result.errors, []);
+});
+
+test("worker prompts honor non-worktree isolation modes", () => {
+  const spec = readData("examples/finite-project/loop.yaml");
+  const prompt = workerPrompt(spec);
+  assert.match(prompt, /Mode: task-directory/);
+  assert.match(prompt, /caller-provided isolated task directory/);
+  assert.doesNotMatch(prompt, /git worktree add/);
 });
 
 test("worker cannot self-approve", () => {
@@ -201,6 +211,36 @@ test("render creates every supported adapter", async () => {
   assert.equal(fs.existsSync(path.join(tmp, ".github", "workflows", "ci-triage.yml")), true);
 });
 
+test("rendered worker, evaluator, and advisor retain the complete approved Goal Contract", () => {
+  const spec = structuredClone(example);
+  spec.goalContract = {
+    objective: {
+      id: "goal-ci-health",
+      statement: spec.goal.objective,
+      outcome: "Reproducible CI failures become independently verified local fixes.",
+      measurement: "Verified CI-fix pass rate per bounded run."
+    },
+    acceptanceCriteria: spec.goal.acceptanceCriteria.map((statement, index) => ({
+      id: `ac-ci-${index + 1}`,
+      statement,
+      evidence: [spec.verification.requiredEvidence[index % spec.verification.requiredEvidence.length]],
+      passCondition: `Criterion ${index + 1} has the required independent evidence and no regression.`
+    })),
+    nonGoals: [{ id: "non-goal-merge", condition: "Do not merge or deploy the generated fix." }],
+    stopConditions: spec.goal.stopConditions.map((condition, index) => ({ id: `stop-ci-${index + 1}`, condition })),
+    blockedConditions: spec.goal.blockedConditions.map((condition, index) => ({ id: `blocked-ci-${index + 1}`, condition }))
+  };
+  assert.equal(validateLoopSpec(spec).ok, true);
+
+  for (const output of [workerPrompt(spec), evaluatorPrompt(spec), chatgptSkill(spec)]) {
+    assert.match(output, /Reproducible CI failures become independently verified local fixes/);
+    assert.match(output, /Criterion 1 has the required independent evidence/);
+    assert.match(output, /Do not merge or deploy the generated fix/);
+    assert.match(output, new RegExp(spec.goal.stopConditions[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(output, new RegExp(spec.goal.blockedConditions[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
 test("github-actions scaffold validates loop spec, not state file", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-gh-"));
   await main(["render", "github-actions-scaffold", "examples/ci-triage/loop.yaml", "--out", tmp]);
@@ -219,6 +259,21 @@ test("doctor reports publish readiness", async () => {
   await main(["doctor"]);
   assert.equal(process.exitCode, undefined);
   process.exitCode = priorExitCode;
+});
+
+test("doctor fails closed without throwing when release artifacts are missing", () => {
+  const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-empty-doctor-"));
+  const originalLog = console.log;
+  console.log = () => {};
+  let result;
+  try {
+    result = runDoctor({ root: emptyRoot });
+  } finally {
+    console.log = originalLog;
+  }
+  assert.equal(result.ok, false);
+  assert.match(result.failed.map((check) => check.message).join("\n"), /distribution versions check could not complete/);
+  assert.match(result.failed.map((check) => check.message).join("\n"), /required file exists: package\.json/);
 });
 
 test("canonical Skill validates and installs for Codex and Claude Code", async () => {
@@ -244,8 +299,8 @@ test("Skill validation accepts GitHub CLI source and pin metadata on an installe
   const tracking = [
     "metadata:",
     "  github-path: skills/loop-engineering",
-    "  github-pinned: v1.0.2",
-    "  github-ref: refs/tags/v1.0.2",
+    "  github-pinned: v1.1.0",
+    "  github-ref: refs/tags/v1.1.0",
     "  github-repo: https://github.com/sheepxux/Loop-Engineering",
     "  github-tree-sha: 0123456789abcdef0123456789abcdef01234567"
   ].join("\n");
@@ -312,6 +367,19 @@ test("Skill eval session review records are digest-bound and expectation-complet
   const validation = validateSkillPackage(copy.skillDir);
   assert.equal(validation.ok, false);
   assert.match(validation.errors.join("\n"), /SHA-256 does not match/);
+});
+
+test("Skill eval sessions retain digest-bound raw fresh-session output", () => {
+  const copy = copyCanonicalSkill("loop-engineering-raw-session-artifact-");
+  const resultFile = path.join(copy.skillDir, "evals", `results-v${packageVersion}.json`);
+  const results = readData(resultFile);
+  const session = results.sessions[0];
+  const rawArtifact = path.resolve(copy.skillDir, session.raw_artifact);
+  fs.appendFileSync(rawArtifact, "\nforged output\n");
+
+  const validation = validateSkillPackage(copy.skillDir);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /raw artifact SHA-256 does not match/);
 });
 
 test("Skill eval fixtures must be regular files with real paths inside the Skill", () => {

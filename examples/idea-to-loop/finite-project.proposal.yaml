@@ -1,0 +1,311 @@
+apiVersion: loop-engineering/v1
+kind: LoopProposal
+metadata:
+  id: generic-finite-project-proposal
+  revision: 1
+  parentProposalSha256: null
+createdAt: 2026-07-15T00:00:00Z
+sourceIdea: 把一个复杂但有限的项目从模糊想法推进到完整交付：先确认基础，再按依赖逐 Part 完成和验收，最后检查整体结果。
+routing:
+  classification: agentic-loop
+  executionShape: finite-plan
+  rationale: The outcome is finite but spans dependent, independently verifiable Parts whose progress
+    must survive multiple bounded contexts.
+  signals:
+    - finite composite outcome
+    - dependency-aware Parts
+    - independent Part and Goal evaluation
+readiness:
+  status: needs-input
+  blockers:
+    - prereq-independent-evaluation
+    - q-deliverable-contract
+    - q-evidence-boundary
+  warnings:
+    - This teaching proposal is intentionally non-executable until the actual deliverable and
+      evidence boundary are confirmed.
+goal:
+  objective:
+    id: goal-complete-finite-project
+    statement: Deliver one approved finite project outcome through bounded Parts and independent
+      whole-Goal verification.
+    outcome: One approved finite project is delivered as durable Part artifacts and an independently
+      verified integrated result.
+    measurement: Exact Part-Gate evidence plus a separate whole-Goal evaluation covering every approved
+      Goal criterion.
+  acceptanceCriteria:
+    - id: ac-parts-verified
+      statement: Every approved Part produces its declared durable artifacts and passes its exact Part
+        acceptance criteria.
+      evidence:
+        - artifact-review
+      passCondition: Every fixed Part has a passing independent evaluator artifact and every declared
+        output file matches its recorded SHA-256.
+    - id: ac-goal-verified
+      statement: The integrated final deliverable satisfies the approved Goal Contract with independent
+        evidence.
+      evidence:
+        - artifact-review
+      passCondition: A fresh Goal evaluator covers both exact Goal criteria against the integrated
+        artifact set and returns pass.
+  nonGoals:
+    - id: non-goal-domain-special-case
+      condition: Do not add writing-, software-, research-, or another domain-specific execution rule to
+        the Skill.
+    - id: non-goal-plan-expansion
+      condition: Do not add, skip, reorder, or reinterpret approved Parts during execution.
+  stopConditions:
+    - id: stop-goal-pass
+      condition: The final Goal Gate passes and the finite lifecycle is completed.
+    - id: stop-budget
+      condition: The run reaches the configured item, time, or cost budget.
+  blockedConditions:
+    - id: blocked-prerequisite
+      condition: A required source, tool, or independent evaluator is unavailable.
+    - id: blocked-scope-change
+      condition: Execution reveals a material scope change that requires a new proposal revision.
+questions:
+  - id: q-deliverable-contract
+    question: What exact final deliverable, required foundation, and in-scope requirements define this
+      project?
+    whyItMatters: The answer fixes Part objectives, expected artifacts, dependencies, and non-goals.
+    blocking: true
+  - id: q-evidence-boundary
+    question: Which evidence commands or artifact checks judge each Part and the whole Goal, and who
+      owns the independent final review?
+    whyItMatters: The answer determines whether Part and Goal completion can be verified without hidden
+      chat context.
+    blocking: true
+assumptions:
+  - id: assumption-manual-first
+    statement: The first execution is manual, uses one Part per run, and creates local review artifacts only.
+    status: confirmed
+    blocking: false
+prerequisites:
+  - id: prereq-independent-evaluation
+    kind: human-owner
+    requirement: A Part evaluator and a distinct final Goal evaluator with access to the declared
+      artifacts and evidence.
+    status: unknown
+    blocking: true
+risks:
+  - id: risk-scope-drift
+    severity: medium
+    description: A long project can silently expand or accept later work before its prerequisites pass.
+    mitigation: Freeze the approved Work Plan, bind every result to the exact Part digest, and require a
+      reviewed proposal revision for material scope changes.
+    status: mitigated
+    blocking: true
+alternative: null
+candidate:
+  acceptanceTrace:
+    - acceptanceId: ac-parts-verified
+      loopCriterion: Every approved Part produces its declared durable artifacts and passes its exact Part
+        acceptance criteria.
+      evidence:
+        - artifact-review
+    - acceptanceId: ac-goal-verified
+      loopCriterion: The integrated final deliverable satisfies the approved Goal Contract with
+        independent evidence.
+      evidence:
+        - artifact-review
+  actionTrace:
+    - kind: permission
+      value: read-local-files
+      actionId: read-local-files
+      gate: autoAllowed
+    - kind: permission
+      value: write-local-files
+      actionId: write-local-files
+      gate: autoAllowed
+    - kind: output
+      value: run-summary
+      actionId: write-run-summary
+      gate: autoAllowed
+    - kind: output
+      value: artifact
+      actionId: write-artifact
+      gate: autoAllowed
+  loop:
+    apiVersion: loop-engineering/v1
+    kind: Loop
+    metadata:
+      name: finite-project
+      owner: project-owner
+      description: A domain-neutral finite project completed through dependency-ready Parts, independent
+        Part Gates, and one final Goal Gate.
+      risk: medium
+      tags:
+        - finite-work-plan
+        - multi-part
+    goal:
+      objective: Deliver one approved finite project outcome through bounded Parts and independent
+        whole-Goal verification.
+      acceptanceCriteria:
+        - Every approved Part produces its declared durable artifacts and passes its exact Part
+          acceptance criteria.
+        - The integrated final deliverable satisfies the approved Goal Contract with independent
+          evidence.
+      stopConditions:
+        - The final Goal Gate passes and the finite lifecycle is completed.
+        - The run reaches the configured item, time, or cost budget.
+      blockedConditions:
+        - A required source, tool, or independent evaluator is unavailable.
+        - Execution reveals a material scope change that requires a new proposal revision.
+    workPlan:
+      mode: finite
+      maxPartsPerRun: 1
+      parts:
+        - id: establish-foundation
+          title: Establish the approved foundation
+          objective: Produce the durable foundation required by every later project Part.
+          dependsOn: []
+          goalCriteria:
+            - Every approved Part produces its declared durable artifacts and passes its exact Part
+              acceptance criteria.
+          acceptanceCriteria:
+            - id: foundation-complete
+              statement: The approved foundation is complete, internally consistent, and usable by dependent
+                Parts.
+              evidence:
+                - foundation-review
+              passCondition: Independent review finds every required foundation element present and no unresolved
+                internal contradiction.
+          verification:
+            requiredEvidence:
+              - foundation-review
+            commands: []
+          expectedArtifacts:
+            - id: foundation-package
+              description: Durable approved inputs and constraints for dependent Parts.
+        - id: produce-deliverable
+          title: Produce the bounded deliverable
+          objective: Create the primary deliverable from the accepted foundation without expanding approved
+            scope.
+          dependsOn:
+            - establish-foundation
+          goalCriteria:
+            - Every approved Part produces its declared durable artifacts and passes its exact Part
+              acceptance criteria.
+            - The integrated final deliverable satisfies the approved Goal Contract with independent
+              evidence.
+          acceptanceCriteria:
+            - id: deliverable-complete
+              statement: The primary deliverable covers the approved scope and preserves the accepted foundation.
+              evidence:
+                - deliverable-review
+              passCondition: Independent review finds every in-scope requirement represented and no approved
+                constraint violated.
+          verification:
+            requiredEvidence:
+              - deliverable-review
+            commands: []
+          expectedArtifacts:
+            - id: primary-deliverable
+              description: The durable primary project deliverable.
+        - id: integrate-project
+          title: Integrate the complete project
+          objective: Assemble the accepted Part artifacts into one coherent final deliverable for whole-Goal
+            evaluation.
+          dependsOn:
+            - produce-deliverable
+          goalCriteria:
+            - The integrated final deliverable satisfies the approved Goal Contract with independent
+              evidence.
+          acceptanceCriteria:
+            - id: integration-coherent
+              statement: The integrated artifact is complete, coherent, and traceable to the accepted Part
+                artifacts.
+              evidence:
+                - integration-review
+              passCondition: Independent review can trace every integrated element to an accepted artifact and
+                finds no missing or conflicting section.
+          verification:
+            requiredEvidence:
+              - integration-review
+            commands: []
+          expectedArtifacts:
+            - id: integrated-deliverable
+              description: The complete artifact submitted to the final Goal Gate.
+      completion:
+        evaluator: project-goal-evaluator
+        independent: true
+        requiredEvidence:
+          - artifact-review
+        commands: []
+        maxAttempts: 2
+    discovery:
+      sources:
+        - type: work-plan
+          description: Do not discover external items; select only dependency-ready Parts from the approved
+            fixed Work Plan.
+      ranking:
+        strategy: Retry eligible failed Parts first, then use Work Plan array order within each eligibility class.
+        deterministicFirst: true
+      maxItemsPerRun: 1
+    handoff:
+      worker: project-part-worker
+      isolation: task-directory
+      permissions:
+        - read-local-files
+        - write-local-files
+      prompt: Complete exactly one eligible Part, produce every declared artifact, and do not evaluate or
+        expand the approved Work Plan.
+    verification:
+      evaluator: project-part-evaluator
+      independent: true
+      defaultStance: assume-broken
+      requiredEvidence:
+        - artifact-review
+      commands: []
+      verdicts:
+        - pass
+        - fail
+        - blocked
+        - needs-human
+    persistence:
+      statePath: .loop-engineering/loops/finite-project/state.json
+      runLogDir: .loop-engineering/loops/finite-project/runs
+      inboxPath: .loop-engineering/loops/finite-project/inbox.md
+      decisionsPath: .loop-engineering/loops/finite-project/decisions.md
+    schedule:
+      runtime: manual
+      cadence: manual
+      timezone: UTC
+      timeoutMinutes: 30
+      concurrency:
+        group: finite-project
+        cancelInProgress: false
+    runner:
+      executor: dry-run
+      workingDirectory: .
+      pollSeconds: 30
+    safety:
+      budgets:
+        maxItemsPerRun: 1
+        maxDailyRuns: 4
+        maxRuntimeMinutes: 30
+        maxEstimatedUsdPerRun: 5
+      retries:
+        maxRetriesPerItem: 2
+        onRepeatedFailure: needs-human
+      humanGates:
+        autoAllowed:
+          - read-local-files
+          - write-local-files
+          - write-run-summary
+          - write-artifact
+        needsReview:
+          - revise-fixed-work-plan
+        humanOnly:
+          - merge-pull-request
+          - deploy-production
+          - delete-data
+          - spend-money
+          - change-permissions
+      failurePolicy:
+        onBudgetExceeded: stop-run
+        onUnsafeAction: block
+    outputs:
+      - run-summary
+      - artifact

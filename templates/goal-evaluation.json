@@ -1,0 +1,27 @@
+{
+  "apiVersion": "loop-engineering/v1",
+  "loop": "example-loop",
+  "basisSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "evaluator": {
+    "identity": "goal-evaluator",
+    "contextId": "independent-goal-evaluation-context",
+    "evaluatedAt": "2026-07-15T00:00:00Z"
+  },
+  "verdict": "pass",
+  "criteria": [
+    {
+      "statement": "The complete Goal acceptance criterion was evaluated against the integrated artifacts.",
+      "verdict": "pass",
+      "summary": "The retained evidence satisfies the criterion."
+    }
+  ],
+  "evidence": [
+    {
+      "type": "artifact-review",
+      "summary": "The integrated artifact set was reviewed independently."
+    }
+  ],
+  "reasons": [],
+  "affectedParts": [],
+  "nextAction": "complete"
+}

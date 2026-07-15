@@ -1,0 +1,88 @@
+apiVersion: loop-engineering/v1
+kind: LoopProposal
+metadata:
+  id: ai-research-monitor-proposal
+  revision: 1
+  parentProposalSha256: null
+createdAt: "2026-07-15T00:00:00Z"
+sourceIdea: "每天帮我研究 AI，给我真正有价值的东西，报告也要越来越好。"
+routing:
+  classification: agentic-loop
+  executionShape: continuous-stream
+  rationale: "Research recurs and requires relevance judgment, but value and improvement still need external definitions."
+  signals:
+    - recurring research
+    - changing sources
+    - relevance judgment
+readiness:
+  status: needs-input
+  blockers:
+    - prereq-independent-review
+    - q-audience-decision
+    - q-cadence-review
+    - q-scope-sources
+  warnings:
+    - "Strategy evolution remains disabled until a stable feedback source and matched benchmark exist."
+goal:
+  objective:
+    id: goal-decision-research
+    statement: "Produce a bounded research brief whose evidence helps a named reader make a defined AI-related decision."
+    outcome: "The reader receives a small set of new, decision-relevant findings with traceable evidence."
+    measurement: "Independent rubric scores for relevance, novelty, evidence quality, and duplication."
+  acceptanceCriteria:
+    - id: ac-traceable-findings
+      statement: "Every reported finding includes a source, publication date, evidence excerpt, and uncertainty note."
+      evidence:
+        - artifact-review
+      passCondition: "Independent review finds all four fields on every reported item."
+    - id: ac-bounded-brief
+      statement: "Each brief contains no more than five deduplicated findings or explicitly reports no qualified change."
+      evidence:
+        - artifact-review
+      passCondition: "The artifact contains at most five unique findings and never invents filler."
+  nonGoals:
+    - id: non-goal-publication
+      condition: "Do not publish, message external users, or present speculation as verified fact."
+  stopConditions:
+    - id: stop-no-qualified-change
+      condition: "No finding meets the approved relevance and evidence rubric."
+    - id: stop-budget
+      condition: "The run reaches its source, item, time, or cost budget."
+  blockedConditions:
+    - id: blocked-value-definition
+      condition: "The target reader and decision are not defined."
+    - id: blocked-source-access
+      condition: "Approved sources or an independent reviewer are unavailable."
+questions:
+  - id: q-audience-decision
+    question: "Who reads the brief, and what decision should it improve?"
+    whyItMatters: "This defines relevance and the observable outcome."
+    blocking: true
+  - id: q-scope-sources
+    question: "Which AI topics, regions, languages, and source classes are in scope?"
+    whyItMatters: "This bounds discovery and evidence quality."
+    blocking: true
+  - id: q-cadence-review
+    question: "What cadence and human review boundary should the first version use?"
+    whyItMatters: "This sets budgets and prevents unreviewed publication."
+    blocking: true
+assumptions:
+  - id: assumption-draft-only
+    statement: "The first version creates an internal draft only and starts with a manual run."
+    status: unconfirmed
+    blocking: false
+prerequisites:
+  - id: prereq-independent-review
+    kind: human-owner
+    requirement: "An independent reviewer or stable external scoring rubric for report quality."
+    status: unknown
+    blocking: true
+risks:
+  - id: risk-source-hallucination
+    severity: high
+    description: "A model could invent sources or overstate uncertain claims."
+    mitigation: "Require retrievable source metadata and independent artifact review for every finding."
+    status: mitigated
+    blocking: true
+alternative: null
+candidate: null

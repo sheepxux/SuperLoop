@@ -1,7 +1,10 @@
 # Roadmap
 
-## v1.0 (current)
+## v1.1 (current)
 
+- Vague-idea intake with a verifiable Goal Contract, non-executable LoopProposal, explicit assumptions, at most three material questions, and honest readiness.
+- Digest-bound human proposal decisions, parent-linked revisions, deterministic compilation, complete Goal/action traceability, persisted Goal Contracts, and tamper-evident proposal/candidate/Goal/reconstructable-decision provenance in `loop.yaml`.
+- Optional fixed finite Work Plans for composite long-horizon outcomes: stable Parts, acyclic dependencies, exact Goal traceability, extensible evidence types, heterogeneous Part verification envelopes, artifact digest bindings, dependency-ready execution, retry-safe progression, independent final Goal evaluation, and a terminal `completed` lifecycle.
 - One canonical, installable `loop-engineering` Agent Skill shared across platforms.
 - Progressive references, deterministic runtime helper, self-contained assets, and behavior evals.
 - Codex and Claude Code plugin/marketplace packaging.
@@ -20,12 +23,13 @@
 - Operator-facing journal inspection, recovery previews, and guided recovery commands; the underlying transaction journal and fail-closed automatic recovery are already implemented.
 - Stronger runtime sandbox integrations for untrusted commands.
 - Cryptographically signed evaluator/provenance attestations for remote runners.
-- Provider-backed held-out Skill eval automation across Codex and Claude Code; v1.0.2 already retains fresh-session review evidence.
+- Provider-backed held-out Skill eval automation across Codex and Claude Code; v1.1.0 retains digest-bound fresh-session outputs and per-expectation review evidence.
+- State-bound proposal revision and migration tooling for explicitly reviewed changes to an already-running fixed Work Plan.
 
 ## Later
 
 - Provider-native Codex, Claude Code, and OpenClaw executors.
 - Cron-expression and timezone-aware local scheduling.
 - Optional GitHub, package-manager, and Playwright collectors.
-- Dependency graphs only when real workloads outgrow the single-lane loop model.
+- Richer workflow topology beyond the bounded fixed Work Plan, only when real workloads justify the added review and recovery surface.
 - Remote control plane without weakening the portable local contract.

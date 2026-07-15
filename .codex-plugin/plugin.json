@@ -1,7 +1,7 @@
 {
   "name": "loop-engineering",
-  "version": "1.0.2",
-  "description": "Design, operate, verify, recover, and empirically improve durable agent loops.",
+  "version": "1.1.0",
+  "description": "Turn vague ideas into verified goals and governed durable agent loops.",
   "author": {
     "name": "sheepxux",
     "url": "https://github.com/sheepxux"
@@ -19,8 +19,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Loop-Engineering",
-    "shortDescription": "Verified, durable agent loops with controlled strategy evolution",
-    "longDescription": "Use Loop-Engineering to decide when a recurring agent loop is appropriate, design its contract, run bounded iterations, independently verify results, persist state, recover failures, and improve task strategy through matched benchmarks.",
+    "shortDescription": "Compile vague ideas into verified, durable agent loops",
+    "longDescription": "Use Loop-Engineering to turn a vague recurring or finite long-horizon idea into a verifiable Goal Contract and non-executable Loop Proposal, bind human approval to its exact digest, compile it deterministically, run bounded discovery or a fixed part-by-part Work Plan, and improve task strategy through matched benchmarks.",
     "developerName": "sheepxux",
     "category": "Developer Tools",
     "capabilities": [
@@ -29,7 +29,9 @@
       "Write"
     ],
     "defaultPrompt": [
+      "Turn this vague idea into a verifiable goal and a reviewable loop proposal.",
       "Design a safe recurring agent loop for this task.",
+      "Design one fixed Work Plan that completes this finite outcome part by part with Part Gates and a final Goal Gate.",
       "Review this loop contract and find unsafe gaps.",
       "Build a benchmark-gated strategy evolution loop."
     ],

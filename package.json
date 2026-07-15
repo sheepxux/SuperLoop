@@ -1,7 +1,7 @@
 {
   "name": "@sheepxux/loop-engineering",
-  "version": "1.0.2",
-  "description": "Portable agent-loop protocol, strategy evolution, and local durable runner for AI coding agents.",
+  "version": "1.1.0",
+  "description": "Agent Skill that compiles vague ideas into verified goals and governed durable loops.",
   "type": "module",
   "main": "./src/cli.js",
   "author": "sheepxux",
@@ -36,10 +36,12 @@
     "test": "node --test",
     "build:adapters": "node ./scripts/build-adapters.js",
     "build:assets": "node ./scripts/build-skill-assets.js",
-    "validate:examples": "node ./bin/loopctl.js validate examples/ci-triage/loop.yaml examples/dependency-update/loop.yaml examples/frontend-qa/loop.yaml examples/self-improving-development/loop.yaml",
+    "validate:examples": "node ./bin/loopctl.js validate examples/ci-triage/loop.yaml examples/dependency-update/loop.yaml examples/frontend-qa/loop.yaml examples/finite-project/loop.yaml examples/self-improving-development/loop.yaml",
+    "validate:proposals": "node ./bin/loopctl.js proposal validate templates/proposal.yaml examples/idea-to-loop/research-monitor.proposal.yaml examples/idea-to-loop/log-cleanup.proposal.yaml examples/idea-to-loop/finite-project.proposal.yaml",
     "doctor": "node ./bin/loopctl.js doctor",
     "package:smoke": "node ./scripts/package-smoke.js",
-    "smoke": "npm test && npm run validate:examples && npm run doctor && node ./bin/loopctl.js skill validate && node ./bin/loopd.js --help && node ./bin/loopctl.js render codex examples/ci-triage/loop.yaml --out /tmp/loop-engineering-codex && node ./bin/loopctl.js render claude-code examples/ci-triage/loop.yaml --out /tmp/loop-engineering-claude"
+    "smoke": "npm test && npm run validate:examples && npm run validate:proposals && npm run doctor && node ./bin/loopctl.js skill validate && node ./bin/loopd.js --help && node ./bin/loopctl.js render codex examples/ci-triage/loop.yaml --out /tmp/loop-engineering-codex && node ./bin/loopctl.js render claude-code examples/ci-triage/loop.yaml --out /tmp/loop-engineering-claude",
+    "prepublishOnly": "npm run build && npm run smoke && npm run package:smoke"
   },
   "keywords": [
     "ai-agents",

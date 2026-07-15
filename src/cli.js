@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { copyFile, loopAdminLockPath, readData, readText, repoRoot, schemaPath, sha256Json, withFileLock, writeJson, writeText, writeYaml } from "./fs-utils.js";
+import { copyFile, loopAdminLockPath, readData, readText, repoRoot, schemaPath, sha256Json, withFileLock, writeJson, writeJsonExclusive, writeText, writeYaml, writeYamlExclusive } from "./fs-utils.js";
 import { runDoctor } from "./doctor.js";
 import { initialEvolutionState, initialStrategy } from "./evolution.js";
-import { migrateLoopState, nextRun, readLoopState, recordExperiment, recordRun, rejectPendingExperiment, resolveLoop, rollbackStrategy } from "./loop-state.js";
+import { migrateLoopState, nextRun, readLoopState, recordExperiment, recordRun, rejectPendingExperiment, reopenWorkPlanPart, resolveGoalAttention, resolveLoop, rollbackStrategy } from "./loop-state.js";
 import { renderAdapter, RENDERERS } from "./renderers.js";
 import { listRuns, setPaused, statusLoops } from "./runner.js";
+import { compileProposal, createProposalDecision, createProposalRevision, validateProposalFile, validateProposalRevision } from "./proposal.js";
 import {
   CANONICAL_SKILL_DIR,
   installCanonicalSkill,
@@ -56,6 +57,12 @@ export async function main(argv) {
   if (command === "resume") {
     return resumeCommand(rest);
   }
+  if (command === "part") {
+    return partCommand(rest);
+  }
+  if (command === "goal") {
+    return goalCommand(rest);
+  }
   if (command === "check") {
     return checkCommand(rest);
   }
@@ -64,6 +71,9 @@ export async function main(argv) {
   }
   if (command === "skill") {
     return skillCommand(rest);
+  }
+  if (command === "proposal") {
+    return proposalCommand(rest);
   }
   if (command === "strategy") {
     return strategyCommand(rest);
@@ -101,7 +111,10 @@ function validateCommand(args) {
 function initCommand(args) {
   const name = args[0];
   if (!name) {
-    throw new Error("Usage: loopctl init <loop-name> --from <loop.yaml> --out <directory> [--force]");
+    throw new Error(
+      "Usage: loopctl init <loop-name> --from <loop.yaml> --out <directory> [--force]. "
+      + "For approved contracts, <loop-name> must equal metadata.name and --out must be .loop-engineering/loops."
+    );
   }
 
   const options = parseOptions(args.slice(1));
@@ -109,25 +122,37 @@ function initCommand(args) {
   const outRoot = options.out || ".loop-engineering/loops";
   const force = options.force === true;
   const spec = readData(source);
-  spec.metadata.name = name;
-  const contractRoot = path.posix.join(".loop-engineering", "loops", name);
-  spec.persistence.statePath = path.posix.join(contractRoot, "state.json");
-  spec.persistence.runLogDir = path.posix.join(contractRoot, "runs");
-  spec.persistence.inboxPath = path.posix.join(contractRoot, "inbox.md");
-  spec.persistence.decisionsPath = path.posix.join(contractRoot, "decisions.md");
-  if (spec.evolution?.enabled) {
-    spec.persistence.strategyPath = path.posix.join(contractRoot, "strategy.json");
-    spec.persistence.experimentDir = path.posix.join(contractRoot, "experiments");
+  const approvedContract = spec.metadata?.provenance !== undefined;
+  if (approvedContract && spec.metadata.name !== name) {
+    throw new Error(
+      `Approved contract name is "${spec.metadata.name}", not "${name}". `
+      + "Revise and re-approve the Proposal instead of mutating a provenance-bound contract during init."
+    );
   }
-  spec.schedule.concurrency.group = name;
-  if (spec.handoff?.worktree?.branchPrefix) {
-    spec.handoff.worktree.branchPrefix = normalizeBranchPrefix(spec.handoff.worktree.branchPrefix, name);
+  if (!approvedContract) {
+    spec.metadata.name = name;
+    const contractRoot = path.posix.join(".loop-engineering", "loops", name);
+    spec.persistence.statePath = path.posix.join(contractRoot, "state.json");
+    spec.persistence.runLogDir = path.posix.join(contractRoot, "runs");
+    spec.persistence.inboxPath = path.posix.join(contractRoot, "inbox.md");
+    spec.persistence.decisionsPath = path.posix.join(contractRoot, "decisions.md");
+    if (spec.evolution?.enabled) {
+      spec.persistence.strategyPath = path.posix.join(contractRoot, "strategy.json");
+      spec.persistence.experimentDir = path.posix.join(contractRoot, "experiments");
+    }
+    spec.schedule.concurrency.group = name;
+    if (spec.handoff?.worktree?.branchPrefix) {
+      spec.handoff.worktree.branchPrefix = normalizeBranchPrefix(spec.handoff.worktree.branchPrefix, name);
+    }
   }
 
   const result = validateLoopSpec(spec, source);
   if (!result.ok) {
     printValidationResult(result);
     throw new Error("Refusing to initialize an invalid loop spec.");
+  }
+  if (approvedContract) {
+    assertApprovedInitLayout(spec, name, outRoot);
   }
 
   const loopDir = path.join(outRoot, name);
@@ -154,7 +179,17 @@ function initCommand(args) {
     lastRunAt: null,
     paused: false,
     pauseReason: null,
-    items: [],
+    items: spec.workPlan
+      ? spec.workPlan.parts.map((part) => ({
+          id: part.id,
+          status: "open",
+          retries: 0,
+          source: "work-plan",
+          summary: part.title,
+          artifacts: [],
+          lastResult: null
+        }))
+      : [],
     recordedRuns: [],
     budgets: {
       date: null,
@@ -163,6 +198,16 @@ function initCommand(args) {
       estimatedUsdToday: 0
     }
   };
+  if (spec.workPlan) {
+    state.partResolutions = [];
+    state.goalResolutions = [];
+    state.lifecycle = {
+      status: "active",
+      completedAt: null,
+      goalEvaluationAttempts: 0,
+      lastGoalEvaluation: null
+    };
+  }
   if (spec.evolution?.enabled) {
     const strategy = initialStrategy(spec, name);
     state.evolution = initialEvolutionState(strategy);
@@ -286,9 +331,17 @@ function statusCommand(args) {
       console.log(`${status.loop}\terror\t${status.error}`);
       continue;
     }
-    const state = status.paused ? "paused" : !status.preflightOk ? "blocked" : status.due ? "ready" : "idle";
+    const state = status.lifecycle === "completed"
+      ? "completed"
+      : status.paused
+        ? "paused"
+        : !status.preflightOk
+          ? "blocked"
+          : status.due
+            ? "ready"
+            : "idle";
     console.log(
-      `${status.loop}\t${state}\tdue=${status.due}\truns-left=${status.runsRemainingToday}\tretries=${status.retryItems}\thuman=${status.needsHuman}\trunner=${status.runner || "none"}`
+      `${status.loop}\t${state}\tdue=${status.due}\tphase=${status.phase || "legacy"}\truns-left=${status.runsRemainingToday}\tretries=${status.retryItems}\thuman=${status.needsHuman}\trunner=${status.runner || "none"}`
     );
   }
 }
@@ -328,24 +381,198 @@ function resumeCommand(args) {
   console.log(`Resumed ${outcome.loop}`);
 }
 
+function partCommand(args) {
+  const [subcommand, target, ...rest] = args;
+  if (subcommand !== "reopen" || !target) {
+    throw new Error("Usage: loopctl part reopen <loop-dir|loop.yaml> --id <part-id> --actor <human> --reason <text>");
+  }
+  const options = parseOptions(rest);
+  if (
+    typeof options.id !== "string"
+    || typeof options.actor !== "string"
+    || typeof options.reason !== "string"
+  ) {
+    throw new Error("Part reopening requires --id, --actor, and --reason.");
+  }
+  const outcome = reopenWorkPlanPart(target, {
+    partId: options.id,
+    actor: options.actor,
+    reason: options.reason
+  });
+  console.log(`Reopened ${outcome.loop} Part ${outcome.partId}`);
+  console.log(`Resolution ${outcome.resolution.id} binds run ${outcome.resolution.evidenceRunId}`);
+}
+
+function goalCommand(args) {
+  const [subcommand, target, ...rest] = args;
+  if (subcommand !== "resolve" || !target) {
+    throw new Error("Usage: loopctl goal resolve <loop-dir|loop.yaml> --actor <human> --reason <text>");
+  }
+  const options = parseOptions(rest);
+  if (typeof options.actor !== "string" || typeof options.reason !== "string") {
+    throw new Error("Goal attention resolution requires --actor and --reason.");
+  }
+  const outcome = resolveGoalAttention(target, {
+    actor: options.actor,
+    reason: options.reason
+  });
+  console.log(`Resolved ${outcome.loop} final Goal attention`);
+  console.log(`Resolution ${outcome.resolution.id} binds run ${outcome.resolution.evidenceRunId}`);
+}
+
 function checkCommand(args) {
   const schemaName = args[0];
   const files = args.slice(1);
   if (!schemaName || files.length === 0) {
-    throw new Error("Usage: loopctl check <loop|state|evaluator|run-log|strategy|experiment|approval|decision> <file...>");
+    throw new Error(
+      "Usage: loopctl check <loop|state|evaluator|goal-evaluation|run-log|strategy|experiment|approval|decision|proposal|proposal-decision> <file...>"
+    );
   }
 
   let failed = false;
   for (const file of files) {
     const result = schemaName === "loop"
       ? validateLoopFile(file)
-      : validateData(schemaName, readData(file), file);
+      : schemaName === "proposal"
+        ? validateProposalFile(file)
+        : validateData(schemaName, readData(file), file);
     printValidationResult(result);
     if (!result.ok) failed = true;
   }
 
   if (failed) {
     process.exitCode = 1;
+  }
+}
+
+function proposalCommand(args) {
+  const action = args[0];
+  const proposalPath = args[1];
+
+  if (action === "validate" && args.length > 1) {
+    const validateArgs = args.slice(1);
+    const parentFlags = validateArgs.reduce(
+      (indexes, value, index) => value === "--parent" ? [...indexes, index] : indexes,
+      []
+    );
+    if (parentFlags.length > 1) {
+      throw new Error("proposal validate accepts at most one --parent <proposal.yaml> option.");
+    }
+    let parentPath = null;
+    if (parentFlags.length === 1) {
+      const parentIndex = parentFlags[0];
+      parentPath = validateArgs[parentIndex + 1];
+      if (!parentPath || parentPath.startsWith("--")) {
+        throw new Error("Usage: loopctl proposal validate <proposal.yaml> --parent <parent-proposal.yaml>");
+      }
+      validateArgs.splice(parentIndex, 2);
+    }
+    if (validateArgs.length === 0 || validateArgs.some((value) => value.startsWith("--"))) {
+      throw new Error("Usage: loopctl proposal validate <proposal.yaml...> [--parent <parent-proposal.yaml>]");
+    }
+    if (parentPath !== null && validateArgs.length !== 1) {
+      throw new Error("Parent-aware validation accepts exactly one proposal revision.");
+    }
+    let failed = false;
+    for (const file of validateArgs) {
+      const result = parentPath === null
+        ? validateProposalFile(file)
+        : validateProposalRevision(readData(file), readData(parentPath), file);
+      printValidationResult(result);
+      if (result.ok) {
+        const proposal = readData(file);
+        console.log(`READINESS ${proposal.readiness.status}`);
+        for (const blocker of proposal.readiness.blockers) console.log(`BLOCKER ${blocker}`);
+      } else {
+        failed = true;
+      }
+    }
+    if (failed) process.exitCode = 1;
+    return;
+  }
+
+  if (action === "revise" && proposalPath) {
+    const options = parseOptions(args.slice(2));
+    if (typeof options.out !== "string") {
+      throw new Error("Usage: loopctl proposal revise <parent-proposal.yaml> --out <proposal.yaml>");
+    }
+    const revision = createProposalRevision(readData(proposalPath));
+    writeExclusiveArtifact(
+      options.out,
+      "proposal revision",
+      () => writeYamlExclusive(options.out, revision)
+    );
+    console.log(`Created proposal revision ${revision.metadata.revision}: ${options.out}`);
+    console.log(`Parent proposal SHA-256: ${revision.metadata.parentProposalSha256}`);
+    return;
+  }
+
+  if (action === "decide" && proposalPath) {
+    const options = parseOptions(args.slice(2));
+    const decisions = ["approve", "reject", "request-changes"].filter((name) => options[name] === true);
+    if (
+      decisions.length !== 1
+      || typeof options.actor !== "string"
+      || typeof options.reason !== "string"
+      || typeof options.out !== "string"
+      || (decisions[0] === "request-changes" && typeof options.change !== "string")
+    ) {
+      throw new Error(
+        "Usage: loopctl proposal decide <proposal.yaml> --approve|--reject|--request-changes [--change <text>] "
+        + "[--parent <parent-proposal.yaml> for revision>1] --actor <human> --reason <text> --out <decision.json>"
+      );
+    }
+    const decision = createProposalDecision(readData(proposalPath), {
+      decision: decisions[0],
+      actor: options.actor,
+      reason: options.reason,
+      requestedChanges: decisions[0] === "request-changes" ? [options.change] : [],
+      parentProposal: typeof options.parent === "string" ? readData(options.parent) : null
+    });
+    writeExclusiveArtifact(
+      options.out,
+      "proposal decision",
+      () => writeJsonExclusive(options.out, decision)
+    );
+    console.log(`Wrote digest-bound proposal decision: ${options.out}`);
+    return;
+  }
+
+  if (action === "compile" && proposalPath) {
+    const options = parseOptions(args.slice(2));
+    if (typeof options.decision !== "string" || typeof options.out !== "string") {
+      throw new Error(
+        "Usage: loopctl proposal compile <proposal.yaml> --decision <decision.json> "
+        + "[--parent <parent-proposal.yaml> for revision>1] --out <loop.yaml>"
+      );
+    }
+    const compiled = compileProposal(readData(proposalPath), readData(options.decision), {
+      parentProposal: typeof options.parent === "string" ? readData(options.parent) : null
+    });
+    writeExclusiveArtifact(
+      options.out,
+      "compiled Loop contract",
+      () => writeYamlExclusive(options.out, compiled)
+    );
+    console.log(`Compiled approved Loop contract: ${options.out}`);
+    console.log(`Proposal SHA-256: ${compiled.metadata.provenance.proposal.sha256}`);
+    console.log(`Decision SHA-256: ${compiled.metadata.provenance.decision.sha256}`);
+    return;
+  }
+
+  throw new Error(
+    "Usage: loopctl proposal <validate|revise|decide|compile> <proposal.yaml> [options]"
+  );
+}
+
+function writeExclusiveArtifact(filePath, label, writer) {
+  try {
+    writer();
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      throw new Error(`Refusing to overwrite existing ${label}: ${filePath}`);
+    }
+    throw error;
   }
 }
 
@@ -443,19 +670,26 @@ function approvalCommand(args) {
   if (!pending || pending.experimentId !== experiment.experimentId || pending.sha256 !== digest) {
     throw new Error("The experiment is not the exact pending candidate recorded in loop state.");
   }
+  if (options.approver.trim().length === 0 || options.reason.trim().length < 3) {
+    throw new Error("Strategy approval requires a non-empty approver and a meaningful reason.");
+  }
   const approval = {
     apiVersion: "loop-engineering/v1",
     loop: experiment.loop,
     experimentId: experiment.experimentId,
     experimentSha256: digest,
     baselineVersion: experiment.baseline.version,
-    approver: options.approver,
+    approver: options.approver.trim(),
     approvedAt: new Date().toISOString(),
-    reason: options.reason
+    reason: options.reason.trim()
   };
   const validation = validateData("approval", approval, options.out);
   if (!validation.ok) throw new Error(`Refusing to write invalid approval: ${validation.errors.join("; ")}`);
-  writeJson(options.out, approval);
+  writeExclusiveArtifact(
+    options.out,
+    "strategy approval",
+    () => writeJsonExclusive(options.out, approval)
+  );
   console.log(`Wrote digest-bound approval: ${options.out}`);
 }
 
@@ -521,6 +755,36 @@ function normalizeBranchPrefix(prefix, name) {
   return prefix;
 }
 
+function assertApprovedInitLayout(spec, name, outRoot) {
+  const requiredOutRoot = path.resolve(".loop-engineering", "loops");
+  if (path.resolve(outRoot) !== requiredOutRoot) {
+    throw new Error(
+      "A provenance-bound approved contract must be initialized with --out .loop-engineering/loops "
+      + "so runtime files stay at the reviewed persistence paths. Revise and re-approve to change them."
+    );
+  }
+
+  const contractRoot = path.posix.join(".loop-engineering", "loops", name);
+  const expected = {
+    statePath: path.posix.join(contractRoot, "state.json"),
+    runLogDir: path.posix.join(contractRoot, "runs"),
+    inboxPath: path.posix.join(contractRoot, "inbox.md"),
+    decisionsPath: path.posix.join(contractRoot, "decisions.md")
+  };
+  if (spec.evolution?.enabled) {
+    expected.strategyPath = path.posix.join(contractRoot, "strategy.json");
+    expected.experimentDir = path.posix.join(contractRoot, "experiments");
+  }
+  for (const [field, expectedPath] of Object.entries(expected)) {
+    if (spec.persistence[field] !== expectedPath) {
+      throw new Error(
+        `Approved contract persistence.${field} is "${spec.persistence[field]}", expected "${expectedPath}". `
+        + "Revise and re-approve the Proposal instead of relocating runtime state during init."
+      );
+    }
+  }
+}
+
 function assertForceReplaceIsSafe(loopDir) {
   const coordinationArtifacts = [
     path.join(loopDir, "locks", "active-run.json"),
@@ -566,7 +830,7 @@ function printHelp() {
 
 Commands:
   validate <loop.yaml...>                 Validate loop specs
-  init <name> --from <loop.yaml> --out D  Initialize loop state directory
+  init <name> --from <loop.yaml> --out D  Initialize state; approved name/path must remain exact
   render <adapter> <loop.yaml> --out D    Render agent/runtime adapter files
   next <loop-dir|loop.yaml>               Print the next-run plan as JSON (budgets, retries, carryover)
   record <loop-dir> --run <run-log.json>  Validate a run log, file it under runs/, update state.json
@@ -575,13 +839,19 @@ Commands:
   runs <loop-dir> [--json]                List recorded runs
   pause <loop-dir> [--reason TEXT]         Pause scheduling for a loop
   resume <loop-dir>                        Resume scheduling for a loop
+  part reopen <loop-dir> [options]         Reopen a blocked/human Part with audited actor, reason, and run binding
+  goal resolve <loop-dir> [options]        Resolve blocked/human final Goal attention with an audited run binding
   check <schema> <file...>                Validate data files against a protocol schema
-  schema <loop|state|evaluator|run-log|strategy|experiment|approval|decision>
+  schema <loop|state|evaluator|goal-evaluation|run-log|strategy|experiment|approval|decision|proposal|proposal-decision>
                                            Print or copy a protocol schema
   doctor                                  Check whether the repo is publish-ready
   skill validate [dir] [--json]           Validate the canonical Agent Skill package
   skill install <platform> [options]      Install Skill for codex, claude-code, or both
   skill path                              Print the canonical Skill directory
+  proposal validate <proposal.yaml>       Validate proposal/readiness; --parent verifies a revision
+  proposal revise <proposal.yaml> [...]   Create a digest-linked next proposal revision
+  proposal decide <proposal.yaml> [...]   Create a digest-bound human decision artifact
+  proposal compile <proposal.yaml> [...]  Compile an approved proposal into loop.yaml
   strategy rollback <loop-dir> [options]  Restore archived strategy behavior as a new version
   approval create <loop-dir> [options]    Create a human approval bound to a pending experiment
   experiment reject <loop-dir> [options] Reject a pending experiment with an immutable human decision

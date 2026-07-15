@@ -6,8 +6,9 @@ import { spawn } from "node:child_process";
 import test from "node:test";
 import { main } from "../src/cli.js";
 import { daemonMain } from "../src/daemon-cli.js";
-import { readData, writeJson, writeYaml } from "../src/fs-utils.js";
+import { readData, sha256File, sha256Json, writeJson, writeYaml } from "../src/fs-utils.js";
 import { acquireLease, releaseLease, renewLease, writeLease } from "../src/lease.js";
+import { nextRun, recordRun, resolveLoop } from "../src/loop-state.js";
 import { listRuns, runTick, setPaused, statusLoops } from "../src/runner.js";
 
 async function initRunnerLoop(name = "runner-loop", mutate = null) {
@@ -214,6 +215,159 @@ test("paused loops are skipped until resumed", async () => {
   assert.equal(resumed[0].status, "dry-run");
 });
 
+test("completed finite work plans are terminal and skipped before lease acquisition", async () => {
+  const { root, loopDir } = await initRunnerLoop("completed-plan", (spec) => {
+    spec.workPlan = {
+      mode: "finite",
+      maxPartsPerRun: 1,
+      parts: [{
+        id: "only-part",
+        title: "Complete the bounded task",
+        objective: "Produce and independently verify the complete bounded result.",
+        dependsOn: [],
+        goalCriteria: [...spec.goal.acceptanceCriteria],
+        acceptanceCriteria: [{
+          id: "only-part-accepted",
+          statement: "The bounded result passes its configured checks.",
+          evidence: [spec.verification.requiredEvidence[0]],
+          passCondition: "The required evidence is present and passing."
+        }],
+        expectedArtifacts: [{ id: "complete-output", description: "The complete verified output." }]
+      }],
+      completion: {
+        evaluator: "final-goal-evaluator",
+        independent: true,
+        requiredEvidence: [...spec.verification.requiredEvidence],
+        commands: [...spec.verification.commands],
+        maxAttempts: 2
+      }
+    };
+  });
+  let loop = resolveLoop(loopDir);
+  const part = loop.spec.workPlan.parts[0];
+  const acceptedArtifacts = [{
+    id: "complete-output",
+    reference: "artifacts/complete-output.json",
+    sha256: ""
+  }];
+  writeJson(path.join(loopDir, acceptedArtifacts[0].reference), { complete: true });
+  acceptedArtifacts[0].sha256 = sha256File(path.join(loopDir, acceptedArtifacts[0].reference));
+  const partFinishedAt = "2026-07-10T11:52:00Z";
+  const partEvaluatorPath = path.join(loopDir, "evaluators", "completed-part.json");
+  const partEvidence = loop.spec.verification.requiredEvidence.map((type) => ({
+    type,
+    summary: `${type} captured.`
+  }));
+  for (const command of loop.spec.verification.commands) {
+    partEvidence.push({ type: "command", summary: `${command} passed.`, command, exitCode: 0 });
+  }
+  writeJson(partEvaluatorPath, {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    itemId: part.id,
+    partDefinitionSha256: sha256Json(part),
+    evaluator: {
+      identity: loop.spec.verification.evaluator,
+      contextId: "completed-part-evaluator",
+      evaluatedAt: partFinishedAt
+    },
+    verdict: "pass",
+    evidence: partEvidence,
+    reasons: [],
+    criteria: part.acceptanceCriteria.map((criterion) => ({
+      id: criterion.id,
+      verdict: "pass",
+      summary: "Criterion passed."
+    })),
+    artifacts: acceptedArtifacts,
+    nextAction: "accept"
+  });
+  recordRun(loop, {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    runId: "completed-part-run",
+    startedAt: "2026-07-10T11:50:00Z",
+    finishedAt: partFinishedAt,
+    status: "passed",
+    discovered: [],
+    results: [{
+      itemId: part.id,
+      partDefinitionSha256: sha256Json(part),
+      verdict: "pass",
+      summary: "Part passed.",
+      evaluator: {
+        artifact: path.relative(loopDir, partEvaluatorPath),
+        sha256: sha256File(partEvaluatorPath),
+        contextId: "completed-part-evaluator"
+      },
+      artifacts: acceptedArtifacts
+    }],
+    budget: { runtimeMinutes: 2, itemsAttempted: 1, estimatedUsd: 0 }
+  }, { now: new Date("2026-07-10T11:53:00Z") });
+
+  loop = resolveLoop(loopDir);
+  const plan = nextRun(loop, new Date("2026-07-10T11:54:00Z"));
+  const basisSha256 = plan.goalEvaluationBasisSha256;
+  const artifactPath = path.join(loopDir, "evaluators", "completed-goal.json");
+  const evaluatedAt = "2026-07-10T11:56:00Z";
+  const evidence = loop.spec.workPlan.completion.requiredEvidence.map((type) => ({
+    type,
+    summary: `${type} captured.`
+  }));
+  for (const command of loop.spec.workPlan.completion.commands) {
+    evidence.push({ type: "command", summary: `${command} passed.`, command, exitCode: 0 });
+  }
+  writeJson(artifactPath, {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    basisSha256,
+    evaluator: { identity: "final-goal-evaluator", contextId: "completed-goal", evaluatedAt },
+    verdict: "pass",
+    criteria: loop.spec.goal.acceptanceCriteria.map((statement) => ({
+      statement,
+      verdict: "pass",
+      summary: "Criterion passed."
+    })),
+    evidence,
+    reasons: [],
+    affectedParts: [],
+    nextAction: "complete"
+  });
+  recordRun(loop, {
+    apiVersion: "loop-engineering/v1",
+    loop: loop.spec.metadata.name,
+    runId: "completed-goal-run",
+    startedAt: "2026-07-10T11:55:00Z",
+    finishedAt: evaluatedAt,
+    status: "passed",
+    discovered: [],
+    results: [],
+    goalEvaluation: {
+      verdict: "pass",
+      summary: "The complete Goal passed.",
+      basisSha256,
+      evaluator: {
+        artifact: path.relative(loopDir, artifactPath),
+        sha256: sha256File(artifactPath),
+        contextId: "completed-goal"
+      }
+    },
+    budget: { runtimeMinutes: 1, itemsAttempted: 0, estimatedUsd: 0 }
+  }, { now: new Date("2026-07-10T11:57:00Z") });
+
+  const outcomes = runTick({
+    root,
+    loopName: "completed-plan",
+    now: new Date("2026-07-10T12:00:00Z"),
+    forceManual: true
+  });
+  assert.deepEqual(outcomes.map((outcome) => [outcome.status, outcome.reason]), [["skipped", "completed"]]);
+  assert.equal(fs.existsSync(path.join(loopDir, "locks", "active-run.json")), false);
+  const status = statusLoops({ root, now: new Date("2026-07-10T12:00:00Z") })[0];
+  assert.equal(status.lifecycle, "completed");
+  assert.equal(status.phase, "completed");
+});
+
 test("interval cadence skips recent loops and runs due loops", async () => {
   const { root, loopDir } = await initRunnerLoop("cadence-loop", (spec) => {
     spec.schedule.runtime = "custom";
@@ -350,6 +504,70 @@ process.stdout.write("executor complete");
   assert.equal(readData(outcomes[0].runFile).status, "no-work");
   assert.match(fs.readFileSync(path.join(outcomes[0].runDir, "stdout.log"), "utf8"), /executor complete/);
   assert.equal(readData(path.join(loopDir, "state.json")).budgets.runsToday, 1);
+});
+
+test("command executor cannot mutate frozen Work Plan state or loop contract", async () => {
+  const { root, loopDir } = await initRunnerLoop("protected-work-plan", (spec, tmp) => {
+    const script = path.join(tmp, "mutate-protected-state.cjs");
+    fs.writeFileSync(script, `
+const fs = require("node:fs");
+const path = require("node:path");
+const statePath = path.join(process.env.LOOP_DIR, "state.json");
+const specPath = path.join(process.env.LOOP_DIR, "loop.yaml");
+const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+state.items[0].status = "passed";
+state.items[0].artifacts = [{ id: "protected-output", reference: "forged.txt", sha256: "${"a".repeat(64)}" }];
+fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+fs.appendFileSync(specPath, "\\n# unauthorized contract edit\\n");
+`);
+    spec.workPlan = {
+      mode: "finite",
+      maxPartsPerRun: 1,
+      parts: [{
+        id: "protected-part",
+        title: "Complete protected work",
+        objective: "Produce one independently verified artifact without mutating durable control state.",
+        dependsOn: [],
+        goalCriteria: [...spec.goal.acceptanceCriteria],
+        acceptanceCriteria: [{
+          id: "protected-part-pass",
+          statement: "The protected output passes its exact acceptance check.",
+          evidence: [spec.verification.requiredEvidence[0]],
+          passCondition: "The configured independent evidence is present and passing."
+        }],
+        expectedArtifacts: [{ id: "protected-output", description: "The verified protected output." }]
+      }],
+      completion: {
+        evaluator: "protected-goal-evaluator",
+        independent: true,
+        requiredEvidence: [...spec.verification.requiredEvidence],
+        commands: [...spec.verification.commands],
+        maxAttempts: 2
+      }
+    };
+    spec.runner.executor = "command";
+    spec.runner.command = `node ${JSON.stringify(script)}`;
+  });
+
+  const [outcome] = runTick({
+    root,
+    loopName: "protected-work-plan",
+    allowCommand: true,
+    forceManual: true
+  });
+  assert.equal(outcome.status, "failed");
+  const recorded = readData(outcome.runFile);
+  assert.equal(recorded.failure.type, "protected-file-tamper");
+  const state = readData(path.join(loopDir, "state.json"));
+  assert.deepEqual(state.items.map((item) => [item.id, item.status, item.artifacts.length]), [
+    ["protected-part", "open", 0]
+  ]);
+  assert.equal(state.recordedRuns.length, 1);
+  assert.equal(state.recordedRuns[0].status, "failed");
+  assert.equal(fs.readdirSync(outcome.runDir).some((name) => name.startsWith("state-tamper-")), true);
+  assert.equal(fs.readdirSync(outcome.runDir).some((name) => name.startsWith("loop-spec-tamper-")), true);
+  assert.equal(fs.readFileSync(path.join(loopDir, "loop.yaml"), "utf8").includes("unauthorized contract edit"), false);
+  assert.equal(nextRun(resolveLoop(loopDir)).phase, "work");
 });
 
 test("command executors cannot backdate Runner time to bypass the daily budget", async () => {

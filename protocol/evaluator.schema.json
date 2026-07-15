@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.0.2/protocol/evaluator.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/evaluator.schema.json",
   "title": "Evaluator Result",
   "type": "object",
   "additionalProperties": false,
@@ -9,6 +9,10 @@
     "apiVersion": { "type": "string", "const": "loop-engineering/v1" },
     "loop": { "type": "string", "minLength": 1 },
     "itemId": { "type": "string", "minLength": 1 },
+    "partDefinitionSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "evaluator": {
       "type": "object",
       "additionalProperties": false,
@@ -44,9 +48,44 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "verdict", "summary"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "verdict": {
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "summary": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactBinding"
+      }
+    },
     "nextAction": {
       "type": "string",
       "enum": ["accept", "retry", "move-to-inbox", "ask-human"]
+    }
+  },
+  "$defs": {
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "reference", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "reference": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
     }
   }
 }

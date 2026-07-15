@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { readData, writeJson, writeText } from "./fs-utils.js";
+import { readData, readText, sha256Json, writeJson, writeText } from "./fs-utils.js";
 import { acquireLease, releaseLease, renewLease } from "./lease.js";
-import { nextRun, readBoundState, readLoopState, recordRun, resolveLoop, withLoopStateLock } from "./loop-state.js";
+import { nextRun, readBoundState, readLoopState, recordRun, resolveLoop, restoreRunnerProtectedFiles, withLoopStateLock } from "./loop-state.js";
 import { validateData } from "./validation.js";
 
 export function runTick({
@@ -27,6 +27,10 @@ export function runTick({
     try {
       loop = resolveLoop(target);
       const state = readLoopState(loop);
+      if (state.lifecycle?.status === "completed") {
+        outcomes.push(result(loop, "skipped", "completed"));
+        continue;
+      }
       if (state.paused) {
         outcomes.push(result(loop, "skipped", "paused", { pauseReason: state.pauseReason ?? null }));
         continue;
@@ -93,7 +97,11 @@ export function runTick({
           outcomes.push(executeLoop(loop, confirmedPlan, runId, lease, {
             now: loopNow,
             timeoutMs: timeoutMs ?? configuredTimeoutMs,
-            deterministicNow: hasInjectedNow
+            deterministicNow: hasInjectedNow,
+            expectedPreStateSha256: sha256Json(confirmedState),
+            expectedState: structuredClone(confirmedState),
+            expectedStateSource: readText(loop.statePath),
+            expectedSpecSource: readText(loop.specPath)
           }));
         } catch (error) {
           const runDir = path.join(loop.runLogDir, runId);
@@ -138,7 +146,11 @@ export function statusLoops({ root = ".loop-engineering/loops", now = new Date()
         retryItems: plan.retryQueue.length,
         needsHuman: plan.needsHuman.length,
         runner: loop.spec.runner?.executor || null,
-        evolution: plan.evolution
+        evolution: plan.evolution,
+        lifecycle: state.lifecycle?.status || null,
+        phase: plan.phase || null,
+        eligibleParts: plan.eligibleParts?.length || 0,
+        lockedParts: plan.lockedParts?.length || 0
       };
     } catch (error) {
       return { loop: path.basename(target), error: error?.message || String(error) };
@@ -149,7 +161,30 @@ export function statusLoops({ root = ".loop-engineering/loops", now = new Date()
 export function setPaused(target, paused, reason = null) {
   const loop = resolveLoop(target);
   return withLoopStateLock(loop, () => {
+    if (fs.existsSync(path.join(loop.loopDir, "locks", "active-run.json"))) {
+      throw new Error("Cannot change pause state while a Runner lease exists; finish or recover the active run first.");
+    }
     const state = readBoundState(loop);
+    if (!paused) {
+      const lastGoal = state.lifecycle?.lastGoalEvaluation;
+      const resolved = lastGoal && (state.goalResolutions || []).some(
+        (entry) => entry.evidenceRunId === lastGoal.runId
+      );
+      if (lastGoal && ["blocked", "needs-human"].includes(lastGoal.verdict) && !resolved) {
+        throw new Error(
+          "Final Goal attention requires an audited resolution; use loopctl goal resolve with actor and reason."
+        );
+      }
+      if (
+        loop.spec.workPlan
+        && state.lifecycle?.goalEvaluationAttempts >= loop.spec.workPlan.completion.maxAttempts
+        && lastGoal?.verdict !== "pass"
+      ) {
+        throw new Error(
+          "Final Goal evaluation attempt budget is exhausted; keep the Loop paused and create a reviewed contract revision."
+        );
+      }
+    }
     const nextState = {
       ...state,
       paused,
@@ -264,7 +299,15 @@ function parseInterval(cadence) {
   return value * unit;
 }
 
-function executeLoop(loop, plan, runId, lease, { now, timeoutMs, deterministicNow }) {
+function executeLoop(loop, plan, runId, lease, {
+  now,
+  timeoutMs,
+  deterministicNow,
+  expectedPreStateSha256,
+  expectedState,
+  expectedStateSource,
+  expectedSpecSource
+}) {
   const runDir = path.join(loop.runLogDir, runId);
   const eventPath = path.join(runDir, "events.ndjson");
   const draftPath = path.join(runDir, "run-log.draft.json");
@@ -303,6 +346,8 @@ function executeLoop(loop, plan, runId, lease, { now, timeoutMs, deterministicNo
         LOOP_PLAN: path.resolve(runDir, "plan.json"),
         LOOP_RUN_ID: runId,
         LOOP_STARTED_AT: startedAt,
+        LOOP_PHASE: plan.phase || "legacy",
+        LOOP_GOAL_EVALUATION_BASIS_SHA256: plan.goalEvaluationBasisSha256 || "",
         LOOP_STRATEGY: loop.strategyPath ? path.resolve(loop.strategyPath) : "",
         LOOP_STRATEGY_VERSION: plan.evolution?.enabled
           ? String(plan.evolution.currentStrategyVersion)
@@ -325,7 +370,26 @@ function executeLoop(loop, plan, runId, lease, { now, timeoutMs, deterministicNo
       timedOut: execution.error?.code === "ETIMEDOUT"
     }, new Date());
 
-    if (exitCode === 0 && fs.existsSync(draftPath)) {
+    const protection = restoreRunnerProtectedFiles(loop, {
+      expectedState,
+      expectedStateSource,
+      expectedSpecSource,
+      evidenceDir: runDir,
+      leaseToken: lease.lease.token,
+      runId,
+      now: new Date()
+    });
+    if (protection.changed) {
+      executorStatus = "failed";
+      runLog = failedRunnerLog(
+        loop,
+        runId,
+        startedAt,
+        "protected-file-tamper",
+        "Command modified loop.yaml or state.json; the frozen files were restored and the draft was rejected."
+      );
+      appendEvent(eventPath, "runner-protected-files-restored", protection, new Date());
+    } else if (exitCode === 0 && fs.existsSync(draftPath)) {
       try {
         runLog = readData(draftPath);
         rejectedDraftUsage = extractReportedUsage(runLog);
@@ -418,6 +482,32 @@ function executeLoop(loop, plan, runId, lease, { now, timeoutMs, deterministicNo
       runLog.budget.estimatedUsd = observed.estimatedUsd;
     }
   }
+  if (loop.spec.runner.executor === "command") {
+    const protection = restoreRunnerProtectedFiles(loop, {
+      expectedState,
+      expectedStateSource,
+      expectedSpecSource,
+      evidenceDir: runDir,
+      leaseToken: lease.lease.token,
+      runId,
+      now: recordedAt
+    });
+    if (protection.changed) {
+      executorStatus = "failed";
+      commandDraftAccepted = false;
+      observedOverrun = false;
+      runLog = failedRunnerLog(
+        loop,
+        runId,
+        startedAt,
+        "protected-file-tamper",
+        "Command modified a frozen protected file after execution; it was restored and no task result was accepted."
+      );
+      runLog.finishedAt = finishedAt;
+      runLog.budget = observedBudget(runLog, Math.max(0, (Date.now() - startedMs) / 60_000));
+      appendEvent(eventPath, "runner-protected-files-restored", protection, recordedAt);
+    }
+  }
   let recorded;
   if (!renewLease(lease.leasePath, lease.lease.token, loop.spec.schedule.timeoutMinutes, { now: recordedAt })) {
     throw new Error(`Runner lease ownership was lost before run ${runId} could be recorded.`);
@@ -428,7 +518,8 @@ function executeLoop(loop, plan, runId, lease, { now, timeoutMs, deterministicNo
       runFile,
       allowDryRun: loop.spec.runner.executor === "dry-run",
       allowObservedOverrun: observedOverrun,
-      leaseToken: lease.lease.token
+      leaseToken: lease.lease.token,
+      expectedPreStateSha256
     });
   } catch (error) {
     if (loop.spec.runner.executor !== "command" || !commandDraftAccepted) throw error;
@@ -449,7 +540,8 @@ function executeLoop(loop, plan, runId, lease, { now, timeoutMs, deterministicNo
       now: new Date(),
       runFile,
       leaseToken: lease.lease.token,
-      allowObservedOverrun: exceeded
+      allowObservedOverrun: exceeded,
+      expectedPreStateSha256
     });
   }
   appendEvent(eventPath, "run-recorded", { status: runLog.status, statePath: recorded.statePath }, new Date());

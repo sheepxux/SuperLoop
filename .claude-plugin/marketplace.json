@@ -5,12 +5,12 @@
   },
   "metadata": {
     "description": "Loop-Engineering Skill and local reference runtime",
-    "version": "1.0.2"
+    "version": "1.1.0"
   },
   "plugins": [
     {
       "name": "loop-engineering",
-      "description": "Design and operate verified agent loops with controlled strategy evolution.",
+      "description": "Compile vague ideas into verified goals and governed agent loops.",
       "source": "./",
       "strict": true,
       "skills": [
