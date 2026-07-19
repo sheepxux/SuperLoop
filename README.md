@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="docs/assets/cover.png" alt="Loop-Engineering" width="720">
+  <img src="docs/assets/cover.png" alt="SuperLoop" width="720">
 </p>
 
 <p align="center">
   <strong>简体中文</strong> · <a href="README.en.md">English</a>
 </p>
 
-# Loop-Engineering
+# SuperLoop
 
 一个可安装的高级 Agent Skill，以及支撑它运行的本地参考运行时。
 
-Loop-Engineering 先把模糊想法编译成可审阅的目标，再用明确、可审计的工程契约管理周期性或有限长时程 Agent 工作：
+SuperLoop 先把模糊想法编译成可审阅的目标，再用明确、可审计的工程契约管理周期性或有限长时程 Agent 工作：
 
 ```text
 模糊想法 → Goal Contract + LoopProposal（不可执行）
@@ -21,11 +21,13 @@ Loop-Engineering 先把模糊想法编译成可审阅的目标，再用明确、
                                                         匹配基准 → 策略晋级或回滚
 ```
 
-它的第一身份是 `skills/loop-engineering` 下的完整 Skill；`loopctl`、`loopd`、协议 Schema 和平台插件是 Skill 的确定性执行底座。
+它的第一身份是 `skills/superloop` 下的完整 Skill；`loopctl`、`loopd`、协议 Schema 和平台插件是 Skill 的确定性执行底座。
 
-## 当前版本：v1.1.0
+## 当前版本：v2.0.0
 
-`v1.1.0` 新增 Idea-to-Loop 设计层：Skill 会把模糊想法转成带证据的 Goal Contract 和不可执行的 `LoopProposal`，最多询问 3 个真正改变设计的问题；人类确认绑定提案的精确 SHA-256，运行时随后确定性编译 `loop.yaml`。提案被改动、仍有阻塞项或确认摘要不匹配时都会失败关闭。摘要使用固定的 [Canonical JSON 规则](docs/canonical-json.md)，可由外部审批系统复现。
+> **v2 破坏性变更：** 正式标识现已统一为 `@sheepxux/superloop`、`$superloop`、`superloop/v2`、`.superloop/loops` 和 `github.com/sheepxux/SuperLoop`。已有 v1 Loop 的协议与持久路径属于获批契约，必须创建父摘要相连的提案 revision、重新获得人类批准并初始化新的 v2 Loop；不得原地改写旧契约，也不得自动继承旧 Part/Goal 的通过状态。
+
+`v2.0.0` 新增 Idea-to-Loop 设计层：Skill 会把模糊想法转成带证据的 Goal Contract 和不可执行的 `LoopProposal`，最多询问 3 个真正改变设计的问题；人类确认绑定提案的精确 SHA-256，运行时随后确定性编译 `loop.yaml`。提案被改动、仍有阻塞项或确认摘要不匹配时都会失败关闭。摘要使用固定的 [Canonical JSON 规则](docs/canonical-json.md)，可由外部审批系统复现。
 
 编译产物会把完整 Goal Contract 保存在 `loop.yaml.goalContract` 中。`metadata.provenance` 同时绑定原提案、获批候选 Loop 正文和 Goal Contract 的摘要，并保留可重建人类批准文件的字段与摘要；`loopctl validate` 会重新计算这些绑定。配合保留的原始 proposal/decision 或可信摘要，编译后的契约可检出篡改；本地摘要提供完整性证据，但不是签名或身份认证。
 
@@ -78,29 +80,29 @@ Loop-Engineering 先把模糊想法编译成可审阅的目标，再用明确、
 ### 使用 GitHub Skill（推荐，当前为 GitHub CLI 预览能力）
 
 ```bash
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.1.0 --agent codex
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.1.0 --agent claude-code
+gh skill install sheepxux/SuperLoop superloop@v2.0.0 --agent codex
+gh skill install sheepxux/SuperLoop superloop@v2.0.0 --agent claude-code
 ```
 
 ### Codex 插件
 
 ```text
-codex plugin marketplace add sheepxux/Loop-Engineering --ref v1.1.0
-codex plugin add loop-engineering@loop-engineering
+codex plugin marketplace add sheepxux/SuperLoop --ref v2.0.0
+codex plugin add superloop@superloop
 ```
 
 ### Claude Code 插件
 
 ```text
-claude plugin marketplace add sheepxux/Loop-Engineering@v1.1.0
-claude plugin install loop-engineering@loop-engineering
+claude plugin marketplace add sheepxux/SuperLoop@v2.0.0
+claude plugin install superloop@superloop
 ```
 
 ### 从源码安装并验证
 
 ```bash
-git clone --branch v1.1.0 https://github.com/sheepxux/Loop-Engineering.git
-cd Loop-Engineering
+git clone --branch v2.0.0 https://github.com/sheepxux/SuperLoop.git
+cd SuperLoop
 npm ci
 node ./bin/loopctl.js skill validate
 
@@ -111,22 +113,22 @@ node ./bin/loopctl.js skill install both --scope project
 发布者完成可选的 npm registry 发布后，也可以使用：
 
 ```bash
-npm install --global @sheepxux/loop-engineering@1.1.0
+npm install --global @sheepxux/superloop@2.0.0
 loopctl skill install both --scope user
 ```
 
 ## 快速开始
 
-以下命令直接使用固定的 GitHub `v1.1.0` 运行时，不要求插件把 `loopctl` 写入 `PATH`。在源码仓库内也可以把此前缀替换为 `node ./bin/loopctl.js`（`loopd` 使用 `node ./bin/loopd.js`）。
+以下命令直接使用固定的 GitHub `v2.0.0` 运行时，不要求插件把 `loopctl` 写入 `PATH`。在源码仓库内也可以把此前缀替换为 `node ./bin/loopctl.js`（`loopd` 使用 `node ./bin/loopd.js`）。
 
 ```bash
-RUNTIME="github:sheepxux/Loop-Engineering#v1.1.0"
+RUNTIME="github:sheepxux/SuperLoop#v2.0.0"
 
 # 检查 Skill、Schema、插件元数据和生成文件是否一致
 npm exec --yes --package="$RUNTIME" -- loopctl doctor
 npm exec --yes --package="$RUNTIME" -- loopctl skill validate
 
-# 先让 $loop-engineering Skill 把想法写成 proposal.yaml；提案不会执行
+# 先让 $superloop Skill 把想法写成 proposal.yaml；提案不会执行
 npm exec --yes --package="$RUNTIME" -- loopctl proposal validate proposal.yaml
 
 # 先解决 blockers；由人类确认假设和 prerequisites，并确保 readiness 为 ready-for-review
@@ -142,22 +144,22 @@ npm exec --yes --package="$RUNTIME" -- loopctl proposal compile proposal.yaml \
 # 从已批准的契约初始化循环；名称必须与 loop.yaml 的 metadata.name 完全相同
 LOOP_NAME="<loop.yaml metadata.name>"
 npm exec --yes --package="$RUNTIME" -- loopctl init "$LOOP_NAME" \
-  --from loop.yaml --out .loop-engineering/loops
+  --from loop.yaml --out .superloop/loops
 
 # 运行前机械检查预算、重试和人工门槛
-npm exec --yes --package="$RUNTIME" -- loopctl next ".loop-engineering/loops/$LOOP_NAME"
+npm exec --yes --package="$RUNTIME" -- loopctl next ".superloop/loops/$LOOP_NAME"
 
 # 为具体循环生成平台实例 Skill
-npm exec --yes --package="$RUNTIME" -- loopctl render codex ".loop-engineering/loops/$LOOP_NAME/loop.yaml" --out .
-npm exec --yes --package="$RUNTIME" -- loopctl render claude-code ".loop-engineering/loops/$LOOP_NAME/loop.yaml" --out .
+npm exec --yes --package="$RUNTIME" -- loopctl render codex ".superloop/loops/$LOOP_NAME/loop.yaml" --out .
+npm exec --yes --package="$RUNTIME" -- loopctl render claude-code ".superloop/loops/$LOOP_NAME/loop.yaml" --out .
 
 # 安全测试 Runner；不会计入任务成功或进化指标
 npm exec --yes --package="$RUNTIME" -- loopd start --once --loop "$LOOP_NAME"
 ```
 
-Codex 实例写入 `.agents/skills/<loop-name>/`；Claude Code 实例写入 `.claude/skills/<loop-name>/`。它们是具体循环的执行入口，不会覆盖 canonical `loop-engineering` Skill。
+Codex 实例写入 `.agents/skills/<loop-name>/`；Claude Code 实例写入 `.claude/skills/<loop-name>/`。它们是具体循环的执行入口，不会覆盖 canonical `superloop` Skill。
 
-仓库内置的 `skills/loop-engineering/assets/proposal.yaml` **有意保持为 `needs-input`**：其中的假设尚未确认、仓库访问 prerequisite 尚未满足，不能直接批准。人类必须审阅并确认或否决每个假设，核实 prerequisite 的真实状态，再让 readiness 与 blockers 反映事实；只有无阻塞项的 `ready-for-review` 提案才能批准。
+仓库内置的 `skills/superloop/assets/proposal.yaml` **有意保持为 `needs-input`**：其中的假设尚未确认、仓库访问 prerequisite 尚未满足，不能直接批准。人类必须审阅并确认或否决每个假设，核实 prerequisite 的真实状态，再让 readiness 与 blockers 反映事实；只有无阻塞项的 `ready-for-review` 提案才能批准。
 
 如果人类要求修改，创建摘要相连的新 revision，不要覆盖旧提案。第二版及以后在验证、决定和编译时都必须提供精确父提案：
 
@@ -172,16 +174,33 @@ loopctl proposal compile proposal-v2.yaml --parent proposal-v1.yaml \
   --decision proposal-v2-decision.json --out loop.yaml
 ```
 
-对提案编译出的契约，`init` 不会改名或搬迁已审阅的持久化路径：`<name>` 必须精确等于 `loop.yaml.metadata.name`，`--out` 必须是 `.loop-engineering/loops`，并生成 `.loop-engineering/loops/<name>/{state.json,runs/,inbox.md,decisions.md}`。需要改变名称或路径时，必须修订提案并重新批准。
+对提案编译出的契约，`init` 不会改名或搬迁已审阅的持久化路径：`<name>` 必须精确等于 `loop.yaml.metadata.name`，`--out` 必须是 `.superloop/loops`，并生成 `.superloop/loops/<name>/{state.json,runs/,inbox.md,decisions.md}`。需要改变名称或路径时，必须修订提案并重新批准。
 
 直接编写 `loop.yaml` 只用于用户提供的现有契约，或用户明确要求的专家直写路径；Agent 不得自行把模糊或全新的想法切到这条路径来绕过 Proposal 审阅。
 
-## 从 v1.0.1 升级
+## 从 Loop-Engineering v1.1.0 迁移到 SuperLoop v2
+
+先停止旧 Runner 并完整备份 `.loop-engineering/loops/<name>`。如果旧契约包含 `metadata.provenance`，必须从原始 proposal 创建父摘要相连的新 revision，把候选契约的 `apiVersion` 更新为 `superloop/v2`，把 persistence 路径更新到 `.superloop/loops/<name>/...`，然后重新验证、重新由人类批准并编译：
+
+```bash
+# 使用 SuperLoop v2 处理修订后的 proposal-v2.yaml
+loopctl proposal validate proposal-v2.yaml --parent proposal-v1.yaml
+loopctl proposal decide proposal-v2.yaml --parent proposal-v1.yaml \
+  --approve --actor "your-name" --reason "SuperLoop v2 identity and persistence migration reviewed" \
+  --out proposal-v2-decision.json
+loopctl proposal compile proposal-v2.yaml --parent proposal-v1.yaml \
+  --decision proposal-v2-decision.json --out loop-v2.yaml
+loopctl init "<exact metadata.name>" --from loop-v2.yaml --out .superloop/loops
+```
+
+旧运行记录继续保留在 `.loop-engineering` 目录作为不可变审计证据。v2 会创建新的 generation、契约摘要、状态和运行账本；旧 Part/Goal 通过、pending experiment 和审批不会自动转换成 v2 成功证据。没有原始 proposal/decision 的专家直写 v1 契约，必须由人审阅后显式重写为 v2 契约，不能让运行时猜测授权边界。
+
+## 从 v1.0.1 升级到 v1.0.2（历史）
 
 先停止 `loopd`，确认循环没有正在执行的任务，并备份循环目录。然后使用 `v1.0.2` 运行时逐个迁移已有循环：
 
 ```bash
-RUNTIME="github:sheepxux/Loop-Engineering#v1.0.2"
+RUNTIME="github:sheepxux/SuperLoop#v1.0.2"
 LOOP_DIR=".loop-engineering/loops/<name>"
 
 npm exec --yes --package="$RUNTIME" -- loopctl migrate "$LOOP_DIR"
@@ -263,7 +282,7 @@ loopctl evolve <loop-dir> --experiment <experiment.json> [--approval <approval.j
 loopctl approval create <loop-dir> --experiment <file> --approver <name> --reason <text> --out <file>
 loopctl experiment reject <loop-dir> --experiment <file> --actor <human> --reason <text>
 loopctl strategy rollback <loop-dir> --to <version> --actor <name> --reason <text>
-loopctl status --root .loop-engineering/loops
+loopctl status --root .superloop/loops
 loopctl runs <loop-dir>
 loopctl pause <loop-dir> --reason <text>
 loopctl resume <loop-dir>
@@ -294,7 +313,7 @@ loopctl doctor
 ## 仓库结构
 
 ```text
-skills/loop-engineering/   canonical Agent Skill、references、assets、scripts、evals
+skills/superloop/   canonical Agent Skill、references、assets、scripts、evals
 .codex-plugin/             Codex 插件清单
 .claude-plugin/            Claude Code 插件与 marketplace 清单
 .agents/plugins/           Codex marketplace 清单
@@ -333,7 +352,7 @@ npm publish --dry-run
 gh skill publish --dry-run
 ```
 
-`npm run build` 从唯一来源生成静态适配器，并将 Skill 内的 canonical assets 同步到 `templates/`；`loopctl doctor` 会阻止漂移。`package:smoke` 会真实打包，在空项目安装 tarball 与双平台 Skill，并验证旧 runtime 不会绕过无依赖 Codex helper 的精确版本回退。新会话结果汇总与 digest-bound 逐 expectation 人工审阅记录保存在 `skills/loop-engineering/evals/`；原始模型 transcript、模型标识和 provider attestation 未保留，因此不能把它描述为可复现的供应商评测。
+`npm run build` 从唯一来源生成静态适配器，并将 Skill 内的 canonical assets 同步到 `templates/`；`loopctl doctor` 会阻止漂移。`package:smoke` 会真实打包，在空项目安装 tarball 与双平台 Skill，并验证旧 runtime 不会绕过无依赖 Codex helper 的精确版本回退。新会话结果汇总与 digest-bound 逐 expectation 人工审阅记录保存在 `skills/superloop/evals/`；原始模型 transcript、模型标识和 provider attestation 未保留，因此不能把它描述为可复现的供应商评测。
 
 更多文档：
 

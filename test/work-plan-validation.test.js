@@ -152,7 +152,7 @@ test("the final Goal Gate cannot weaken approved evidence or command requirement
 
 test("Goal evaluation schema carries an independent completion basis", () => {
   const result = validateData("goal-evaluation", {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: "finite-loop",
     basisSha256: "a".repeat(64),
     evaluator: {

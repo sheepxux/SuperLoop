@@ -1,6 +1,6 @@
 # Contributing
 
-Loop-Engineering is built around one rule: portable loop specs should be safer and clearer than ad hoc agent prompts.
+SuperLoop is built around one rule: portable loop specs should be safer and clearer than ad hoc agent prompts.
 
 ## Development
 

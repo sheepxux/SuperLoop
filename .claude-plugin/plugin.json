@@ -1,16 +1,16 @@
 {
-  "name": "loop-engineering",
-  "description": "Complete Skill for compiling vague ideas into verified goals and governed durable agent loops.",
-  "version": "1.1.0",
+  "name": "superloop",
+  "description": "SuperLoop Skill for compiling vague ideas into verified goals and governed durable agent loops.",
+  "version": "2.0.0",
   "author": {
     "name": "sheepxux"
   },
-  "homepage": "https://github.com/sheepxux/Loop-Engineering",
-  "repository": "https://github.com/sheepxux/Loop-Engineering",
+  "homepage": "https://github.com/sheepxux/SuperLoop",
+  "repository": "https://github.com/sheepxux/SuperLoop",
   "license": "MIT",
   "keywords": [
     "agent-skills",
-    "loop-engineering",
+    "superloop",
     "strategy-evolution",
     "verification",
     "automation"

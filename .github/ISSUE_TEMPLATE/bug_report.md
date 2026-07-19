@@ -25,4 +25,4 @@ labels: bug
 
 - Node:
 - OS:
-- `@sheepxux/loop-engineering` version:
+- `@sheepxux/superloop` version:

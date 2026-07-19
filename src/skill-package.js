@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import YAML from "yaml";
 import { repoRoot } from "./fs-utils.js";
 
-export const CANONICAL_SKILL_DIR = path.join(repoRoot, "skills", "loop-engineering");
+export const CANONICAL_SKILL_DIR = path.join(repoRoot, "skills", "superloop");
 export const SKILL_PLATFORMS = new Set(["codex", "claude-code"]);
 const PACKAGE_METADATA = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const PACKAGE_VERSION = PACKAGE_METADATA.version;
@@ -109,7 +109,7 @@ export function installCanonicalSkill({
   const parent = outDir
     ? path.resolve(outDir)
     : defaultInstallParent(platform, scope, { cwd, home, codexHome });
-  const destination = path.join(parent, "loop-engineering");
+  const destination = path.join(parent, "superloop");
   if (fs.existsSync(destination)) {
     if (!force) {
       throw new Error(`Refusing to overwrite existing Skill: ${destination}. Pass --force to replace it.`);
@@ -313,7 +313,7 @@ function validateEvalResults(root, evals, skillName, errors) {
   const resultName = `results-v${PACKAGE_VERSION}.json`;
   const file = path.join(evalDir, resultName);
   if (!fs.existsSync(file)) {
-    errors.push(`Skill evals require fresh-session results for package version ${PACKAGE_VERSION}: ${resultName}`);
+    errors.push(`Skill evals require release evidence for package version ${PACKAGE_VERSION}: ${resultName}`);
     return;
   }
   let data;
@@ -333,6 +333,9 @@ function validateEvalResults(root, evals, skillName, errors) {
   if (data.skill_name !== skillName) {
     errors.push(`${resultName} skill_name must match the Skill name.`);
   }
+  if (!["fresh-session", "migration-review"].includes(data.evidence_type)) {
+    errors.push(`${resultName} evidence_type must be fresh-session or migration-review.`);
+  }
 
   const evalIds = evals.map((entry) => entry.id);
   const expectationTotals = new Map(evals.map((entry) => [
@@ -348,10 +351,10 @@ function validateEvalResults(root, evals, skillName, errors) {
   const sessionIds = sessions.map((entry) => entry?.id);
   const validSessionIds = sessionIds.filter((id) => typeof id === "string" && id.trim().length > 0);
   if (sessions.length === 0 || validSessionIds.length !== sessions.length) {
-    errors.push(`${resultName} must declare non-empty fresh-session IDs.`);
+    errors.push(`${resultName} must declare non-empty evidence session IDs.`);
   }
   if (new Set(validSessionIds).size !== validSessionIds.length) {
-    errors.push(`${resultName} fresh-session IDs must be unique.`);
+    errors.push(`${resultName} evidence session IDs must be unique.`);
   }
   const declaredSessions = new Set(validSessionIds);
   const referencedSessions = new Set();
@@ -378,7 +381,10 @@ function validateEvalResults(root, evals, skillName, errors) {
       const digest = crypto.createHash("sha256").update(raw).digest("hex");
       if (digest !== session.sha256) throw new Error("artifact SHA-256 does not match");
       const record = JSON.parse(raw.toString("utf8"));
-      if (record.id !== session.id || record.kind !== "fresh-session-review-record") {
+      const expectedKind = data.evidence_type === "migration-review"
+        ? "migration-review-record"
+        : "fresh-session-review-record";
+      if (record.id !== session.id || record.kind !== expectedKind) {
         throw new Error("artifact identity does not match the declared session");
       }
       const rawTarget = path.resolve(root, session.raw_artifact);
@@ -393,7 +399,7 @@ function validateEvalResults(root, evals, skillName, errors) {
         || record.rawArtifact !== session.raw_artifact
         || record.rawSha256 !== session.raw_sha256
       ) {
-        throw new Error("review artifact does not bind the declared raw fresh-session output");
+        throw new Error("review artifact does not bind the declared raw evidence output");
       }
       sessionRecords.set(session.id, record);
     } catch (error) {
@@ -414,14 +420,14 @@ function validateEvalResults(root, evals, skillName, errors) {
       errors.push(`${resultName} eval ${entry?.eval_id} does not have complete passing evidence for every defined expectation.`);
     }
     if (typeof entry?.session !== "string" || !declaredSessions.has(entry.session)) {
-      errors.push(`${resultName} eval ${entry?.eval_id} must reference a declared fresh-session ID.`);
+      errors.push(`${resultName} eval ${entry?.eval_id} must reference a declared evidence session ID.`);
     } else {
       referencedSessions.add(entry.session);
     }
   }
   for (const sessionId of declaredSessions) {
     if (!referencedSessions.has(sessionId)) {
-      errors.push(`${resultName} fresh-session ID is not referenced by any eval result: ${sessionId}`);
+      errors.push(`${resultName} evidence session ID is not referenced by any eval result: ${sessionId}`);
     }
     const record = sessionRecords.get(sessionId);
     if (!record) continue;

@@ -10,7 +10,7 @@ import { acquireLease, releaseLease } from "../src/lease.js";
 import { migrateLoopState, nextRun, recordExperiment, recordRun, reopenWorkPlanPart, resolveGoalAttention, resolveLoop, rollbackStrategy } from "../src/loop-state.js";
 
 function initLoop() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-runtime-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-runtime-"));
   return main(["init", "ci-triage", "--from", "examples/ci-triage/loop.yaml", "--out", tmp]).then(() => {
     return path.join(tmp, "ci-triage");
   });
@@ -18,7 +18,7 @@ function initLoop() {
 
 function runLog(overrides = {}) {
   return {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: "ci-triage",
     runId: "2026-07-10T0100Z",
     startedAt: "2026-07-10T01:00:00Z",
@@ -33,7 +33,7 @@ function runLog(overrides = {}) {
 
 function developmentRunLog(index, overrides = {}) {
   return {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: "self-improving-development",
     runId: `2026-07-10T0${index}00Z`,
     startedAt: `2026-07-10T0${index}:00:00Z`,
@@ -49,7 +49,7 @@ function developmentRunLog(index, overrides = {}) {
 
 function strategyExperiment(overrides = {}) {
   const experiment = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: "self-improving-development",
     experimentId: "reproduction-first-v2",
     metric: "verified-pass-rate",
@@ -71,7 +71,7 @@ function strategyExperiment(overrides = {}) {
     },
     candidate: {
       strategy: {
-        apiVersion: "loop-engineering/v1",
+        apiVersion: "superloop/v2",
         loop: "self-improving-development",
         version: 2,
         instructions: "Reproduce the defect first, isolate one causal hypothesis, then run the narrow check before the full suite.",
@@ -144,7 +144,7 @@ function bindEvaluatorEvidence(loop, log) {
       evidence.push({ type: "command", summary: `${command} completed.`, command, exitCode: result.verdict === "pass" ? 0 : 1 });
     }
     const evaluatorResult = {
-      apiVersion: "loop-engineering/v1",
+      apiVersion: "superloop/v2",
       loop: loop.spec.metadata.name,
       itemId: result.itemId,
       evaluator: {
@@ -177,7 +177,7 @@ function bindEvaluatorEvidence(loop, log) {
 }
 
 async function initWorkPlanLoop(mutator = null) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-work-plan-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-work-plan-"));
   const source = path.join(tmp, "loop.yaml");
   const spec = readData("examples/ci-triage/loop.yaml");
   spec.safety.budgets.maxDailyRuns = 24;
@@ -230,7 +230,7 @@ async function initWorkPlanLoop(mutator = null) {
 
 function workPlanRun(loop, { runId, at, itemId, verdict = "pass" }) {
   return bindEvaluatorEvidence(loop, {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     runId,
     startedAt: at,
@@ -260,7 +260,7 @@ function bindGoalEvaluation(loop, basisSha256, {
     evidence.push({ type: "command", summary: `${command} completed.`, command, exitCode: 0 });
   }
   writeJson(artifactPath, {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     basisSha256,
     evaluator: {
@@ -280,7 +280,7 @@ function bindGoalEvaluation(loop, basisSha256, {
     nextAction
   });
   return {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     runId,
     startedAt: at,
@@ -348,7 +348,7 @@ function materializeExperiment(loop, experiment, { makeDue = true } = {}) {
 
 function approvalFor(experiment) {
   return {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: experiment.loop,
     experimentId: experiment.experimentId,
     experimentSha256: sha256Json(experiment),
@@ -375,7 +375,7 @@ function transactionWrite(loopDir, file, data, { immutable = false, schema }) {
 
 function transactionJournal(loop, operation, beforeState, writes, createdAt = "2026-07-12T00:00:00Z") {
   return {
-    apiVersion: "loop-engineering/transaction-v1",
+    apiVersion: "superloop/transaction-v1",
     loop: loop.spec.metadata.name,
     operation,
     createdAt,
@@ -444,7 +444,7 @@ test("finite work plans initialize durable parts and schedule only dependency-el
   );
 
   const noWork = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     runId: "finite-false-no-work",
     startedAt: "2026-07-14T00:07:00Z",
@@ -929,7 +929,7 @@ test("state timestamps and accounting days fail closed on invalid or future valu
 });
 
 test("state lock fails closed on an ownerless canonical directory", () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-ownerless-lock-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-ownerless-lock-"));
   const lock = path.join(tmp, "state-update.lock");
   fs.mkdirSync(lock);
   const stale = new Date(Date.now() - 60_000);
@@ -944,7 +944,7 @@ test("state lock fails closed on an ownerless canonical directory", () => {
 });
 
 test("state-lock acquisition gate fails closed after an acquisition crash", () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-orphaned-acquire-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-orphaned-acquire-"));
   const lock = path.join(tmp, "state-update.lock");
   const gate = `${lock}.acquire`;
   fs.mkdirSync(gate);
@@ -965,7 +965,7 @@ test("state-lock acquisition gate fails closed after an acquisition crash", () =
 });
 
 test("state lock remains owned until an asynchronous callback settles", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-async-lock-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-async-lock-"));
   const lock = path.join(tmp, "state-update.lock");
   let finish;
   const pending = withFileLock(lock, () => new Promise((resolve) => { finish = resolve; }));
@@ -977,7 +977,7 @@ test("state lock remains owned until an asynchronous callback settles", async ()
 });
 
 test("state lock is released when a callback returns a throwing thenable", () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-throwing-thenable-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-throwing-thenable-"));
   const lock = path.join(tmp, "state-update.lock");
   const malformedThenable = Object.defineProperty({}, "then", {
     get() {
@@ -990,7 +990,7 @@ test("state lock is released when a callback returns a throwing thenable", () =>
 });
 
 test("state lock release fails closed if callback work loses ownership", () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-lost-lock-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-lost-lock-"));
   const missingLock = path.join(tmp, "missing-owner.lock");
   assert.throws(
     () => withFileLock(missingLock, () => fs.rmSync(missingLock, { recursive: true })),
@@ -1010,7 +1010,7 @@ test("state lock release fails closed if callback work loses ownership", () => {
 });
 
 test("concurrent stale state-lock reclaim never overlaps callbacks", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-stale-lock-race-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-stale-lock-race-"));
   const lock = path.join(tmp, "state-update.lock");
   const marker = path.join(tmp, "critical-section");
   const trigger = path.join(tmp, "go");
@@ -1088,7 +1088,7 @@ test("runtime fails closed when durable state is missing or belongs to another l
   assert.throws(() => nextRun(loop), /state is missing/);
 
   writeJson(path.join(loopDir, "state.json"), {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: "another-loop",
     lastRunAt: null,
     paused: false,
@@ -1112,7 +1112,7 @@ test("runtime rejects duplicate durable item identities", async () => {
 });
 
 test("stale resolved handles cannot cross an init generation replacement", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-generation-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-generation-"));
   await main(["init", "ci-triage", "--from", "examples/ci-triage/loop.yaml", "--out", tmp]);
   const loopDir = path.join(tmp, "ci-triage");
   const staleLoop = resolveLoop(loopDir);
@@ -1264,7 +1264,7 @@ test("next flags items with exhausted retries", async () => {
 });
 
 test("stop-run retry policy mechanically blocks preflight after exhaustion", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-stop-retry-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-stop-retry-"));
   const spec = readData("examples/ci-triage/loop.yaml");
   spec.safety.retries.onRepeatedFailure = "stop-run";
   const source = path.join(tmp, "loop.yaml");
@@ -1733,7 +1733,7 @@ test("concurrent record commands serialize state and enforce the daily budget", 
 });
 
 test("evolution-enabled init creates an active strategy and experiment directory", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-init-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-init-"));
   await main([
     "init",
     "self-improving-development",
@@ -1755,7 +1755,7 @@ test("evolution-enabled init creates an active strategy and experiment directory
 });
 
 test("strategy and rollback archives are digest-anchored in durable state", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-strategy-anchor-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-strategy-anchor-"));
   await main([
     "init",
     "self-improving-development",
@@ -1781,7 +1781,7 @@ test("strategy and rollback archives are digest-anchored in durable state", asyn
 });
 
 test("v1.0.1 evolution state migrates losslessly to integrity bindings", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-state-migration-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-state-migration-"));
   await main([
     "init",
     "self-improving-development",
@@ -1840,7 +1840,7 @@ test("v1.0.1 evolution state migrates losslessly to integrity bindings", async (
 });
 
 test("migration refuses expired leases whose owner may still be alive", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-live-legacy-lease-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-live-legacy-lease-"));
   await main([
     "init",
     "self-improving-development",
@@ -1876,7 +1876,7 @@ test("migration refuses expired leases whose owner may still be alive", async ()
 });
 
 test("migration refuses orphan or future strategy archives", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-orphan-archive-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-orphan-archive-"));
   await main([
     "init",
     "self-improving-development",
@@ -1896,7 +1896,7 @@ test("migration refuses orphan or future strategy archives", async () => {
   delete legacy.evolution.consecutiveFailuresSinceExperiment;
   writeJson(loop.statePath, legacy);
   writeJson(path.join(loop.strategyArchiveDir, "v999.json"), {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: "self-improving-development",
     version: 999,
     instructions: "Unreviewed orphan instructions.",
@@ -1912,7 +1912,7 @@ test("migration refuses orphan or future strategy archives", async () => {
 });
 
 test("migration invalidates an old pending experiment and permits a fresh attributed restage", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-pending-migration-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-pending-migration-"));
   await main([
     "init",
     "self-improving-development",
@@ -1941,7 +1941,7 @@ test("migration invalidates an old pending experiment and permits a fresh attrib
   const migratedState = readData(loop.statePath);
   assert.equal(migratedState.evolution.pendingExperiment, null);
   assert.equal(migratedState.evolution.history[0].outcome, "invalidated");
-  assert.match(migratedState.evolution.history[0].reason, /v1\.0\.2 migration/);
+  assert.match(migratedState.evolution.history[0].reason, /integrity migration/);
   assert.equal(nextRun(loop, new Date("2026-07-12T00:00:00Z")).evolution.due, true);
 
   const fresh = materializeExperiment(
@@ -1953,7 +1953,7 @@ test("migration invalidates an old pending experiment and permits a fresh attrib
 });
 
 test("next marks strategy evolution due after the configured number of runs", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-due-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-due-"));
   await main([
     "init",
     "self-improving-development",
@@ -1984,7 +1984,7 @@ test("next marks strategy evolution due after the configured number of runs", as
 });
 
 test("strategy experiments require a fresh trigger and consume it exactly once", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-trigger-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-trigger-"));
   await main([
     "init",
     "self-improving-development",
@@ -2013,7 +2013,7 @@ test("strategy experiments require a fresh trigger and consume it exactly once",
   second.experimentId = "second-pending-v2";
   assert.throws(() => recordExperiment(loop, second), /already pending review/);
 
-  const rejectedTmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-rejected-trigger-"));
+  const rejectedTmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-rejected-trigger-"));
   await main([
     "init",
     "self-improving-development",
@@ -2037,7 +2037,7 @@ test("strategy experiments require a fresh trigger and consume it exactly once",
 });
 
 test("strategy experiments bind baseline, candidate, and per-case evaluation digests", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-experiment-attribution-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-experiment-attribution-"));
   await main([
     "init",
     "self-improving-development",
@@ -2071,7 +2071,7 @@ test("strategy experiments bind baseline, candidate, and per-case evaluation dig
 });
 
 test("run evidence is attributed to the exact active strategy digest", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-run-strategy-binding-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-run-strategy-binding-"));
   await main([
     "init",
     "self-improving-development",
@@ -2095,7 +2095,7 @@ test("run evidence is attributed to the exact active strategy digest", async () 
 });
 
 test("human-reviewed strategy evolution stages then promotes a benchmark winner", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-promote-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-promote-"));
   await main([
     "init",
     "self-improving-development",
@@ -2159,7 +2159,7 @@ test("human-reviewed strategy evolution stages then promotes a benchmark winner"
 });
 
 test("a human can reject a pending experiment without unlocking an immediate retry", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-human-reject-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-human-reject-"));
   await main([
     "init",
     "self-improving-development",
@@ -2225,7 +2225,7 @@ test("a human can reject a pending experiment without unlocking an immediate ret
 });
 
 test("strategy transaction recovery completes partial promotion with immutable approval", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-recover-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-recover-"));
   await main([
     "init",
     "self-improving-development",
@@ -2273,7 +2273,7 @@ test("strategy transaction recovery completes partial promotion with immutable a
 });
 
 test("pending experiment recovery binds staging time after all evaluation evidence", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-forged-staging-time-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-forged-staging-time-"));
   await main([
     "init",
     "self-improving-development",
@@ -2305,7 +2305,7 @@ test("pending experiment recovery binds staging time after all evaluation eviden
 });
 
 test("promotion recovery requires the exact pending experiment authorization", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-forged-promotion-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-forged-promotion-"));
   await main([
     "init",
     "self-improving-development",
@@ -2353,7 +2353,7 @@ test("promotion recovery requires the exact pending experiment authorization", a
 });
 
 test("strategy evolution rejects candidates below the configured improvement threshold", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-reject-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-reject-"));
   await main([
     "init",
     "self-improving-development",
@@ -2376,7 +2376,7 @@ test("strategy evolution rejects candidates below the configured improvement thr
 });
 
 test("strategy evolution rejects a high-scoring candidate with any failed benchmark case", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-failed-case-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-failed-case-"));
   await main([
     "init",
     "self-improving-development",
@@ -2397,7 +2397,7 @@ test("strategy evolution rejects a high-scoring candidate with any failed benchm
 });
 
 test("strategy evolution requires configured digest-bound evaluator identity", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-evaluator-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-evaluator-"));
   await main([
     "init",
     "self-improving-development",
@@ -2427,7 +2427,7 @@ test("strategy evolution requires configured digest-bound evaluator identity", a
 });
 
 test("strategy experiment replay requires matching immutable state history", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-replay-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-replay-"));
   await main([
     "init",
     "self-improving-development",
@@ -2463,7 +2463,7 @@ test("strategy experiment replay requires matching immutable state history", asy
 });
 
 test("strategy approval is bound to the exact staged experiment digest", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-approval-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-approval-"));
   await main([
     "init",
     "self-improving-development",
@@ -2508,7 +2508,7 @@ test("strategy approval is bound to the exact staged experiment digest", async (
 });
 
 test("human-reviewed promotion replay requires its persisted approval history", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-approval-audit-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-approval-audit-"));
   await main([
     "init",
     "self-improving-development",
@@ -2528,7 +2528,7 @@ test("human-reviewed promotion replay requires its persisted approval history", 
 });
 
 test("strategy rollback restores archived behavior as a new monotonic version", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-rollback-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-rollback-"));
   await main([
     "init",
     "self-improving-development",
@@ -2583,19 +2583,19 @@ test("check validates data files against protocol schemas", async () => {
 });
 
 test("rendered executor skill is an operational playbook", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-skill-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-skill-"));
   await main(["render", "codex", "examples/ci-triage/loop.yaml", "--out", tmp]);
   const skill = fs.readFileSync(path.join(tmp, ".agents", "skills", "ci-triage", "SKILL.md"), "utf8");
 
-  assert.match(skill, /loopctl next \.loop-engineering\/loops\/ci-triage/);
-  assert.match(skill, /loopctl record \.loop-engineering\/loops\/ci-triage --run/);
+  assert.match(skill, /loopctl next \.superloop\/loops\/ci-triage/);
+  assert.match(skill, /loopctl record \.superloop\/loops\/ci-triage --run/);
   assert.match(skill, /git worktree add/);
   assert.match(skill, /loopctl check evaluator/);
   assert.match(skill, /gh run list --status failure/);
 });
 
 test("rendered finite executor honors task-directory isolation without Git instructions", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-finite-skill-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-finite-skill-"));
   await main(["render", "codex", "examples/finite-project/loop.yaml", "--out", tmp]);
   const skill = fs.readFileSync(
     path.join(tmp, ".agents", "skills", "finite-project", "SKILL.md"),
@@ -2607,7 +2607,7 @@ test("rendered finite executor honors task-directory isolation without Git instr
 });
 
 test("rendered evolution skill loads strategy and uses benchmark-gated promotion", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-skill-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-skill-"));
   await main(["render", "codex", "examples/self-improving-development/loop.yaml", "--out", tmp]);
   const skill = fs.readFileSync(path.join(tmp, ".agents", "skills", "self-improving-development", "SKILL.md"), "utf8");
 
@@ -2618,7 +2618,7 @@ test("rendered evolution skill loads strategy and uses benchmark-gated promotion
 });
 
 test("rendered chatgpt adapter is an advisor, not an executor", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-chatgpt-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-chatgpt-"));
   await main(["render", "chatgpt", "examples/ci-triage/loop.yaml", "--out", tmp]);
   const instructions = fs.readFileSync(path.join(tmp, "chatgpt", "ci-triage", "instructions.md"), "utf8");
 
@@ -2627,11 +2627,11 @@ test("rendered chatgpt adapter is an advisor, not an executor", async () => {
 });
 
 test("github-actions scaffold is manual, read-only, and gates on loopctl next", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-gha-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-gha-"));
   await main(["render", "github-actions-scaffold", "examples/ci-triage/loop.yaml", "--out", tmp]);
   const workflow = fs.readFileSync(path.join(tmp, ".github", "workflows", "ci-triage.yml"), "utf8");
 
-  assert.match(workflow, /loopctl next '\.loop-engineering\/loops\/ci-triage'/);
+  assert.match(workflow, /loopctl next '\.superloop\/loops\/ci-triage'/);
   assert.match(workflow, /if: steps\.next\.outputs\.ok == 'true'/);
   assert.match(workflow, /permissions:\n  contents: read/);
   assert.doesNotMatch(workflow, /schedule:/);

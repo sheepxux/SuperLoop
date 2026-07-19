@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/proposal.schema.json",
-  "title": "Loop-Engineering Idea-to-Loop Proposal",
+  "$id": "https://raw.githubusercontent.com/sheepxux/SuperLoop/v2.0.0/protocol/proposal.schema.json",
+  "title": "SuperLoop Idea-to-Loop Proposal",
   "description": "A review artifact that turns an idea into a verifiable goal and a suggested Loop contract. A proposal is not execution authorization.",
   "type": "object",
   "additionalProperties": false,
@@ -24,7 +24,7 @@
   "properties": {
     "apiVersion": {
       "type": "string",
-      "const": "loop-engineering/v1"
+      "const": "superloop/v2"
     },
     "kind": {
       "type": "string",

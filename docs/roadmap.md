@@ -1,14 +1,16 @@
 # Roadmap
 
-## v1.1 (current)
+## v2.0 (current)
 
 - Vague-idea intake with a verifiable Goal Contract, non-executable LoopProposal, explicit assumptions, at most three material questions, and honest readiness.
 - Digest-bound human proposal decisions, parent-linked revisions, deterministic compilation, complete Goal/action traceability, persisted Goal Contracts, and tamper-evident proposal/candidate/Goal/reconstructable-decision provenance in `loop.yaml`.
 - Optional fixed finite Work Plans for composite long-horizon outcomes: stable Parts, acyclic dependencies, exact Goal traceability, extensible evidence types, heterogeneous Part verification envelopes, artifact digest bindings, dependency-ready execution, retry-safe progression, independent final Goal evaluation, and a terminal `completed` lifecycle.
-- One canonical, installable `loop-engineering` Agent Skill shared across platforms.
+- One canonical, installable `superloop` Agent Skill shared across platforms.
 - Progressive references, deterministic runtime helper, self-contained assets, and behavior evals.
 - Codex and Claude Code plugin/marketplace packaging.
-- Portable protocol v1 with typed action gates and safe persistence paths.
+- Portable `superloop/v2` protocol with typed action gates and safe persistence paths.
+- Complete SuperLoop identity across the package, Skill, protocol, state roots, plugins, documentation, and GitHub repository.
+- Fail-closed v1-to-v2 migration through a parent-linked proposal revision, fresh human approval, and a new state generation.
 - Evidence-bound run results with independent evaluator artifacts and SHA-256 verification.
 - Loop-generation/contract bindings plus active and archived strategy digest anchors.
 - Hard discovery, item, time, daily-run, and cost limits with serialized accounting.
@@ -23,8 +25,8 @@
 - Operator-facing journal inspection, recovery previews, and guided recovery commands; the underlying transaction journal and fail-closed automatic recovery are already implemented.
 - Stronger runtime sandbox integrations for untrusted commands.
 - Cryptographically signed evaluator/provenance attestations for remote runners.
-- Provider-backed held-out Skill eval automation across Codex and Claude Code; v1.1.0 retains digest-bound fresh-session outputs and per-expectation review evidence.
-- State-bound proposal revision and migration tooling for explicitly reviewed changes to an already-running fixed Work Plan.
+- Provider-backed held-out Skill eval automation across Codex and Claude Code; v2.0.0 retains digest-bound legacy session outputs with explicitly labeled migration-review evidence until fresh v2 provider runs are recorded.
+- State-bound proposal revision tooling for explicitly reviewed changes to an already-running fixed Work Plan.
 
 ## Later
 

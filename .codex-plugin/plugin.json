@@ -1,26 +1,26 @@
 {
-  "name": "loop-engineering",
-  "version": "1.1.0",
-  "description": "Turn vague ideas into verified goals and governed durable agent loops.",
+  "name": "superloop",
+  "version": "2.0.0",
+  "description": "SuperLoop turns vague ideas into verified goals and governed durable agent loops.",
   "author": {
     "name": "sheepxux",
     "url": "https://github.com/sheepxux"
   },
-  "homepage": "https://github.com/sheepxux/Loop-Engineering",
-  "repository": "https://github.com/sheepxux/Loop-Engineering",
+  "homepage": "https://github.com/sheepxux/SuperLoop",
+  "repository": "https://github.com/sheepxux/SuperLoop",
   "license": "MIT",
   "keywords": [
     "agent-skills",
-    "loop-engineering",
+    "superloop",
     "strategy-evolution",
     "verification",
     "automation"
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Loop-Engineering",
+    "displayName": "SuperLoop",
     "shortDescription": "Compile vague ideas into verified, durable agent loops",
-    "longDescription": "Use Loop-Engineering to turn a vague recurring or finite long-horizon idea into a verifiable Goal Contract and non-executable Loop Proposal, bind human approval to its exact digest, compile it deterministically, run bounded discovery or a fixed part-by-part Work Plan, and improve task strategy through matched benchmarks.",
+    "longDescription": "Use SuperLoop to turn a vague recurring or finite long-horizon idea into a verifiable Goal Contract and non-executable Loop Proposal, bind human approval to its exact digest, compile it deterministically, run bounded discovery or a fixed part-by-part Work Plan, and improve task strategy through matched benchmarks.",
     "developerName": "sheepxux",
     "category": "Developer Tools",
     "capabilities": [
@@ -35,7 +35,7 @@
       "Review this loop contract and find unsafe gaps.",
       "Build a benchmark-gated strategy evolution loop."
     ],
-    "websiteURL": "https://github.com/sheepxux/Loop-Engineering",
+    "websiteURL": "https://github.com/sheepxux/SuperLoop",
     "brandColor": "#000000",
     "logo": "./docs/assets/cover.png",
     "screenshots": []

@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="docs/assets/cover.png" alt="Loop-Engineering" width="720">
+  <img src="docs/assets/cover.png" alt="SuperLoop" width="720">
 </p>
 
 <p align="center">
   <a href="README.md">简体中文</a> · <strong>English</strong>
 </p>
 
-# Loop-Engineering
+# SuperLoop
 
 An installable advanced Agent Skill with a local reference runtime that supports it.
 
-Loop-Engineering first compiles a vague idea into a reviewable goal, then governs recurring or finite long-horizon agent work with an explicit, auditable engineering contract:
+SuperLoop first compiles a vague idea into a reviewable goal, then governs recurring or finite long-horizon agent work with an explicit, auditable engineering contract:
 
 ```text
 vague idea → Goal Contract + LoopProposal (non-executable)
@@ -21,11 +21,13 @@ vague idea → Goal Contract + LoopProposal (non-executable)
                                                                           matched benchmark → promote or roll back
 ```
 
-Its primary product is the complete Skill under `skills/loop-engineering`. `loopctl`, `loopd`, protocol schemas, and platform plugins are the deterministic execution foundation for that Skill.
+Its primary product is the complete Skill under `skills/superloop`. `loopctl`, `loopd`, protocol schemas, and platform plugins are the deterministic execution foundation for that Skill.
 
-## Current Version: v1.1.0
+## Current Version: v2.0.0
 
-`v1.1.0` adds the Idea-to-Loop design plane. The Skill turns a vague idea into an evidence-bearing Goal Contract and a non-executable `LoopProposal`, asking at most three questions that materially change the design. A human decision binds the proposal's exact SHA-256 before the runtime can deterministically compile `loop.yaml`. A changed proposal, unresolved blocker, or digest mismatch fails closed. Digests use a frozen [Canonical JSON algorithm](docs/canonical-json.md) that external approval systems can reproduce.
+> **Breaking v2 change:** the canonical identities are now `@sheepxux/superloop`, `$superloop`, `superloop/v2`, `.superloop/loops`, and `github.com/sheepxux/SuperLoop`. A v1 Loop's protocol and persistence paths are part of its approved contract, so existing loops require a parent-linked proposal revision, fresh human approval, and a new v2 initialization. Do not rewrite an approved v1 contract in place or automatically carry prior Part/Goal passes into v2.
+
+`v2.0.0` adds the Idea-to-Loop design plane. The Skill turns a vague idea into an evidence-bearing Goal Contract and a non-executable `LoopProposal`, asking at most three questions that materially change the design. A human decision binds the proposal's exact SHA-256 before the runtime can deterministically compile `loop.yaml`. A changed proposal, unresolved blocker, or digest mismatch fails closed. Digests use a frozen [Canonical JSON algorithm](docs/canonical-json.md) that external approval systems can reproduce.
 
 Compilation persists the complete Goal Contract at `loop.yaml.goalContract`. `metadata.provenance` binds the source proposal, approved candidate Loop body, and Goal Contract digests, and retains the fields and digest needed to reconstruct the human approval. `loopctl validate` recomputes those bindings. With the original proposal/decision or another trusted digest retained, the compiled contract is tamper-evident; local hashes provide integrity evidence, not a signature or identity proof.
 
@@ -78,29 +80,29 @@ See the validated [generic finite Work Plan example](examples/finite-project/loo
 ### GitHub Skill (recommended; GitHub CLI currently marks this capability as preview)
 
 ```bash
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.1.0 --agent codex
-gh skill install sheepxux/Loop-Engineering loop-engineering@v1.1.0 --agent claude-code
+gh skill install sheepxux/SuperLoop superloop@v2.0.0 --agent codex
+gh skill install sheepxux/SuperLoop superloop@v2.0.0 --agent claude-code
 ```
 
 ### Codex plugin
 
 ```text
-codex plugin marketplace add sheepxux/Loop-Engineering --ref v1.1.0
-codex plugin add loop-engineering@loop-engineering
+codex plugin marketplace add sheepxux/SuperLoop --ref v2.0.0
+codex plugin add superloop@superloop
 ```
 
 ### Claude Code plugin
 
 ```text
-claude plugin marketplace add sheepxux/Loop-Engineering@v1.1.0
-claude plugin install loop-engineering@loop-engineering
+claude plugin marketplace add sheepxux/SuperLoop@v2.0.0
+claude plugin install superloop@superloop
 ```
 
 ### Install and validate from source
 
 ```bash
-git clone --branch v1.1.0 https://github.com/sheepxux/Loop-Engineering.git
-cd Loop-Engineering
+git clone --branch v2.0.0 https://github.com/sheepxux/SuperLoop.git
+cd SuperLoop
 npm ci
 node ./bin/loopctl.js skill validate
 
@@ -111,22 +113,22 @@ node ./bin/loopctl.js skill install both --scope project
 After the publisher completes the optional npm registry release, you can also use:
 
 ```bash
-npm install --global @sheepxux/loop-engineering@1.1.0
+npm install --global @sheepxux/superloop@2.0.0
 loopctl skill install both --scope user
 ```
 
 ## Quick Start
 
-These commands use the pinned GitHub `v1.1.0` runtime directly, so plugin installation does not need to place `loopctl` on `PATH`. In a source checkout, replace the prefix with `node ./bin/loopctl.js` (and use `node ./bin/loopd.js` for `loopd`).
+These commands use the pinned GitHub `v2.0.0` runtime directly, so plugin installation does not need to place `loopctl` on `PATH`. In a source checkout, replace the prefix with `node ./bin/loopctl.js` (and use `node ./bin/loopd.js` for `loopd`).
 
 ```bash
-RUNTIME="github:sheepxux/Loop-Engineering#v1.1.0"
+RUNTIME="github:sheepxux/SuperLoop#v2.0.0"
 
 # Check the Skill, schemas, plugin metadata, and generated-file drift
 npm exec --yes --package="$RUNTIME" -- loopctl doctor
 npm exec --yes --package="$RUNTIME" -- loopctl skill validate
 
-# First have the $loop-engineering Skill write proposal.yaml; a proposal cannot execute
+# First have the $superloop Skill write proposal.yaml; a proposal cannot execute
 npm exec --yes --package="$RUNTIME" -- loopctl proposal validate proposal.yaml
 
 # First resolve blockers; a human confirms assumptions and prerequisites, and readiness is ready-for-review
@@ -142,22 +144,22 @@ npm exec --yes --package="$RUNTIME" -- loopctl proposal compile proposal.yaml \
 # Initialize from the approved contract; the name must exactly match loop.yaml metadata.name
 LOOP_NAME="<loop.yaml metadata.name>"
 npm exec --yes --package="$RUNTIME" -- loopctl init "$LOOP_NAME" \
-  --from loop.yaml --out .loop-engineering/loops
+  --from loop.yaml --out .superloop/loops
 
 # Mechanically check budgets, retries, and human gates
-npm exec --yes --package="$RUNTIME" -- loopctl next ".loop-engineering/loops/$LOOP_NAME"
+npm exec --yes --package="$RUNTIME" -- loopctl next ".superloop/loops/$LOOP_NAME"
 
 # Render platform-specific instance Skills
-npm exec --yes --package="$RUNTIME" -- loopctl render codex ".loop-engineering/loops/$LOOP_NAME/loop.yaml" --out .
-npm exec --yes --package="$RUNTIME" -- loopctl render claude-code ".loop-engineering/loops/$LOOP_NAME/loop.yaml" --out .
+npm exec --yes --package="$RUNTIME" -- loopctl render codex ".superloop/loops/$LOOP_NAME/loop.yaml" --out .
+npm exec --yes --package="$RUNTIME" -- loopctl render claude-code ".superloop/loops/$LOOP_NAME/loop.yaml" --out .
 
 # Exercise the Runner safely; this does not count as task success or evolution evidence
 npm exec --yes --package="$RUNTIME" -- loopd start --once --loop "$LOOP_NAME"
 ```
 
-Codex instances are written to `.agents/skills/<loop-name>/`; Claude Code instances go to `.claude/skills/<loop-name>/`. They are loop-specific execution entry points and never overwrite the canonical `loop-engineering` Skill.
+Codex instances are written to `.agents/skills/<loop-name>/`; Claude Code instances go to `.claude/skills/<loop-name>/`. They are loop-specific execution entry points and never overwrite the canonical `superloop` Skill.
 
-The bundled `skills/loop-engineering/assets/proposal.yaml` is **intentionally `needs-input`**: its assumption is unconfirmed and its repository-access prerequisite is unmet, so it cannot be approved as shipped. A human must review and confirm or reject every assumption, verify each prerequisite's real status, and then make readiness and blockers reflect reality. Only an unblocked `ready-for-review` proposal can be approved.
+The bundled `skills/superloop/assets/proposal.yaml` is **intentionally `needs-input`**: its assumption is unconfirmed and its repository-access prerequisite is unmet, so it cannot be approved as shipped. A human must review and confirm or reject every assumption, verify each prerequisite's real status, and then make readiness and blockers reflect reality. Only an unblocked `ready-for-review` proposal can be approved.
 
 When a human requests changes, create a digest-linked revision instead of overwriting the old proposal. Revision 2 and later must supply the exact parent proposal during validation, decision, and compilation:
 
@@ -172,16 +174,32 @@ loopctl proposal compile proposal-v2.yaml --parent proposal-v1.yaml \
   --decision proposal-v2-decision.json --out loop.yaml
 ```
 
-For a proposal-compiled contract, `init` does not rename the reviewed contract or relocate its persistence paths: `<name>` must exactly equal `loop.yaml.metadata.name`, `--out` must be `.loop-engineering/loops`, and the result uses `.loop-engineering/loops/<name>/{state.json,runs/,inbox.md,decisions.md}`. Revise and re-approve the proposal to change a name or path.
+For a proposal-compiled contract, `init` does not rename the reviewed contract or relocate its persistence paths: `<name>` must exactly equal `loop.yaml.metadata.name`, `--out` must be `.superloop/loops`, and the result uses `.superloop/loops/<name>/{state.json,runs/,inbox.md,decisions.md}`. Revise and re-approve the proposal to change a name or path.
 
 Direct `loop.yaml` authoring is only for a user-supplied existing contract or an explicitly requested expert path. An agent must not move a vague or new idea onto it to bypass Proposal review.
 
-## Upgrade from v1.0.1
+## Migrate from Loop-Engineering v1.1.0 to SuperLoop v2
+
+Stop the legacy Runner and make a complete backup of `.loop-engineering/loops/<name>`. When the old contract contains `metadata.provenance`, create a parent-linked revision from the original proposal, change the candidate contract to `apiVersion: superloop/v2`, update persistence paths to `.superloop/loops/<name>/...`, then validate, obtain fresh human approval, and compile again:
+
+```bash
+loopctl proposal validate proposal-v2.yaml --parent proposal-v1.yaml
+loopctl proposal decide proposal-v2.yaml --parent proposal-v1.yaml \
+  --approve --actor "your-name" --reason "SuperLoop v2 identity and persistence migration reviewed" \
+  --out proposal-v2-decision.json
+loopctl proposal compile proposal-v2.yaml --parent proposal-v1.yaml \
+  --decision proposal-v2-decision.json --out loop-v2.yaml
+loopctl init "<exact metadata.name>" --from loop-v2.yaml --out .superloop/loops
+```
+
+Keep the old `.loop-engineering` directory as immutable audit evidence. v2 creates a new generation, contract digest, state, and run ledger; prior Part/Goal passes, pending experiments, and approvals do not automatically become v2 success evidence. A directly authored v1 contract without its original proposal/decision must be explicitly rewritten and reviewed by a human rather than having the runtime infer authority.
+
+## Upgrade from v1.0.1 to v1.0.2 (historical)
 
 Stop `loopd`, confirm that the loop is not executing work, and back up the loop directory. Then migrate each existing loop with the `v1.0.2` runtime:
 
 ```bash
-RUNTIME="github:sheepxux/Loop-Engineering#v1.0.2"
+RUNTIME="github:sheepxux/SuperLoop#v1.0.2"
 LOOP_DIR=".loop-engineering/loops/<name>"
 
 npm exec --yes --package="$RUNTIME" -- loopctl migrate "$LOOP_DIR"
@@ -263,7 +281,7 @@ loopctl evolve <loop-dir> --experiment <experiment.json> [--approval <approval.j
 loopctl approval create <loop-dir> --experiment <file> --approver <name> --reason <text> --out <file>
 loopctl experiment reject <loop-dir> --experiment <file> --actor <human> --reason <text>
 loopctl strategy rollback <loop-dir> --to <version> --actor <name> --reason <text>
-loopctl status --root .loop-engineering/loops
+loopctl status --root .superloop/loops
 loopctl runs <loop-dir>
 loopctl pause <loop-dir> --reason <text>
 loopctl resume <loop-dir>
@@ -294,7 +312,7 @@ The current Runner is not an operating-system sandbox. A command executor uses t
 ## Repository Layout
 
 ```text
-skills/loop-engineering/   canonical Skill, references, assets, scripts, and evals
+skills/superloop/   canonical Skill, references, assets, scripts, and evals
 .codex-plugin/             Codex plugin manifest
 .claude-plugin/            Claude Code plugin and marketplace manifests
 .agents/plugins/           Codex marketplace manifest
@@ -333,7 +351,7 @@ npm publish --dry-run
 gh skill publish --dry-run
 ```
 
-`npm run build` regenerates static adapters from one source and mirrors the canonical Skill assets into `templates/`. `loopctl doctor` fails when either surface drifts. `package:smoke` installs a real tarball and both platform Skills in an empty project, then proves a stale runtime cannot bypass the exact-version helper fallback. Fresh-session summaries and digest-bound reviewer-authored expectation records live under `skills/loop-engineering/evals/`. Raw model transcripts, model identifiers, and provider attestations were not retained, so this is not presented as a reproducible provider evaluation.
+`npm run build` regenerates static adapters from one source and mirrors the canonical Skill assets into `templates/`. `loopctl doctor` fails when either surface drifts. `package:smoke` installs a real tarball and both platform Skills in an empty project, then proves a stale runtime cannot bypass the exact-version helper fallback. Fresh-session summaries and digest-bound reviewer-authored expectation records live under `skills/superloop/evals/`. Raw model transcripts, model identifiers, and provider attestations were not retained, so this is not presented as a reproducible provider evaluation.
 
 More documentation:
 

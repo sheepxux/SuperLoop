@@ -19,7 +19,7 @@ loopctl proposal decide proposal-v2.yaml --parent proposal-v1.yaml --approve --a
 loopctl proposal compile proposal-v2.yaml --parent proposal-v1.yaml --decision decision-v2.json --out loop.yaml
 ```
 
-The exact parent is mandatory for revision 2 and later at validation, decision, and compilation. A compiled contract must then be initialized with a name equal to `loop.yaml.metadata.name` and `--out .loop-engineering/loops`; its approved `.loop-engineering/loops/<name>/{state.json,runs/,inbox.md,decisions.md}` paths cannot be renamed or relocated during initialization.
+The exact parent is mandatory for revision 2 and later at validation, decision, and compilation. A compiled contract must then be initialized with a name equal to `loop.yaml.metadata.name` and `--out .superloop/loops`; its approved `.superloop/loops/<name>/{state.json,runs/,inbox.md,decisions.md}` paths cannot be renamed or relocated during initialization.
 
 After that boundary, `loop.yaml` is the immutable contract for a recurring stream or finite long-horizon agent workflow:
 
@@ -96,7 +96,15 @@ Promotion archives both strategies and the exact approval artifact. Staging time
 
 The runtime rejects an approver string equal to any configured worker or evaluator identity. The string itself is still a local audit assertion, not authenticated identity or a digital signature; deployments that need enforceable governance must add their own identity-backed approval channel.
 
-## v1.0.1 migration
+## SuperLoop v2 identity migration
+
+SuperLoop v2 changes the canonical package, Skill identifier, protocol version, and state root. A Loop created under `loop-engineering/v1` or stored below `.loop-engineering/loops` is therefore not opened in place as a `superloop/v2` Loop. Stop the old Runner, preserve the complete legacy directory as evidence, and create a parent-linked proposal revision that records the intended migration. After fresh human approval, compile and initialize that revision under `.superloop/loops`.
+
+The v2 Loop receives a new generation, contract digest, state ledger, and approval chain. Legacy run artifacts remain attributable historical evidence, but Part/Goal passes, pending experiments, strategy approvals, leases, and completion state do not transfer automatically. This prevents a new protocol identity from inheriting claims that were approved and evaluated under a different contract.
+
+`loopctl migrate` repairs missing integrity anchors inside a supported protocol generation; it does not convert a v1 contract or state directory into v2.
+
+## Historical v1.0.1 migration
 
 Before a v1.0.2 runtime operates an existing loop, stop its Runner and run `loopctl migrate <loop-dir>`. Migration adds generation/contract bindings and anchors an exact continuous `v1..active` strategy chain; orphan/future archives, broken parents, active owners, or contract/version/digest inconsistencies fail closed. A repeat migration on a current consistent loop is a no-op. A legacy pending experiment is marked `invalidated`; rebuild it under a new experiment ID with v1.0.2 per-case attestations and never reuse its old approval. Remote or unverifiable expired leases require operator verification plus `--retire-expired-lease`; a live same-host PID is never retired.
 

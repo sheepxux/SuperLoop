@@ -88,7 +88,7 @@ function renderGitHubActionsScaffold(spec, outDir) {
 function githubActionScaffoldYaml(spec, loopDir) {
   const quotedSpec = shellQuote(`${loopDir}/loop.yaml`);
   const quotedLoopDir = shellQuote(loopDir);
-  return `# Loop-Engineering preflight scaffold. Add a real executor and durable state channel before scheduling.
+  return `# SuperLoop preflight scaffold. Add a real executor and durable state channel before scheduling.
 name: ${yamlScalar(`${spec.metadata.name} preflight`)}
 
 on:
@@ -111,12 +111,12 @@ jobs:
         with:
           node-version: 20
       - name: Validate loop spec
-        run: npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.1.0 -- loopctl validate ${quotedSpec}
+        run: npm exec --yes --package=github:sheepxux/SuperLoop#v2.0.0 -- loopctl validate ${quotedSpec}
       - name: Check budgets and carryover work
         id: next
         run: |
           # next exits non-zero when the loop should not run; that is a skip, not a failure.
-          (npm exec --yes --package=github:sheepxux/Loop-Engineering#v1.1.0 -- loopctl next ${quotedLoopDir} || true) | tee next.json
+          (npm exec --yes --package=github:sheepxux/SuperLoop#v2.0.0 -- loopctl next ${quotedLoopDir} || true) | tee next.json
           echo "ok=$(node -p 'JSON.parse(require("fs").readFileSync("next.json","utf8")).ok')" >> "$GITHUB_OUTPUT"
           {
             echo '### loopctl next'

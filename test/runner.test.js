@@ -12,7 +12,7 @@ import { nextRun, recordRun, resolveLoop } from "../src/loop-state.js";
 import { listRuns, runTick, setPaused, statusLoops } from "../src/runner.js";
 
 async function initRunnerLoop(name = "runner-loop", mutate = null) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-runner-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-runner-"));
   const root = path.join(tmp, "loops");
   let source = "templates/loop.yaml";
   if (mutate) {
@@ -262,7 +262,7 @@ test("completed finite work plans are terminal and skipped before lease acquisit
     partEvidence.push({ type: "command", summary: `${command} passed.`, command, exitCode: 0 });
   }
   writeJson(partEvaluatorPath, {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     itemId: part.id,
     partDefinitionSha256: sha256Json(part),
@@ -283,7 +283,7 @@ test("completed finite work plans are terminal and skipped before lease acquisit
     nextAction: "accept"
   });
   recordRun(loop, {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     runId: "completed-part-run",
     startedAt: "2026-07-10T11:50:00Z",
@@ -318,7 +318,7 @@ test("completed finite work plans are terminal and skipped before lease acquisit
     evidence.push({ type: "command", summary: `${command} passed.`, command, exitCode: 0 });
   }
   writeJson(artifactPath, {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     basisSha256,
     evaluator: { identity: "final-goal-evaluator", contextId: "completed-goal", evaluatedAt },
@@ -334,7 +334,7 @@ test("completed finite work plans are terminal and skipped before lease acquisit
     nextAction: "complete"
   });
   recordRun(loop, {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     runId: "completed-goal-run",
     startedAt: "2026-07-10T11:55:00Z",
@@ -412,7 +412,7 @@ test("runner rechecks cadence after acquiring the lease", async () => {
 });
 
 test("default runner clock is refreshed per loop while an injected clock stays deterministic", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-runner-clock-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-runner-clock-"));
   const root = path.join(tmp, "loops");
   await main(["init", "clock-a", "--from", "templates/loop.yaml", "--out", root]);
   await main(["init", "clock-b", "--from", "templates/loop.yaml", "--out", root]);
@@ -476,7 +476,7 @@ test("command executor consumes a structured draft run log", async () => {
     fs.writeFileSync(script, `
 const fs = require("node:fs");
 const log = {
-  apiVersion: "loop-engineering/v1",
+  apiVersion: "superloop/v2",
   loop: "command-loop",
   runId: process.env.LOOP_RUN_ID,
   startedAt: new Date().toISOString(),
@@ -579,7 +579,7 @@ const fs = require("node:fs");
 const counter = ${JSON.stringify(counter)};
 fs.appendFileSync(counter, "executed\\n");
 fs.writeFileSync(process.env.LOOP_RUN_LOG, JSON.stringify({
-  apiVersion: "loop-engineering/v1",
+  apiVersion: "superloop/v2",
   loop: "backdated-command-loop",
   runId: process.env.LOOP_RUN_ID,
   startedAt: "2020-01-01T00:00:00Z",
@@ -614,7 +614,7 @@ fs.writeFileSync(process.env.LOOP_RUN_LOG, JSON.stringify({
 });
 
 test("evolution command runs receive and persist the lease-frozen strategy binding", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-evolution-runner-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-evolution-runner-"));
   const root = path.join(tmp, "loops");
   const spec = readData("examples/self-improving-development/loop.yaml");
   const script = path.join(tmp, "evolution-executor.cjs");
@@ -632,7 +632,7 @@ const evaluatorDir = path.join(process.env.LOOP_DIR, "evaluators");
 fs.mkdirSync(evaluatorDir, { recursive: true });
 const evaluatorPath = path.join(evaluatorDir, "feature-1.json");
 const evaluator = {
-  apiVersion: "loop-engineering/v1",
+  apiVersion: "superloop/v2",
   loop: "evolution-command-loop",
   itemId,
   evaluator: { identity: "development-evaluator", contextId, evaluatedAt: now },
@@ -649,7 +649,7 @@ const raw = JSON.stringify(evaluator, null, 2) + "\\n";
 fs.writeFileSync(evaluatorPath, raw);
 const digest = crypto.createHash("sha256").update(raw).digest("hex");
 fs.writeFileSync(process.env.LOOP_RUN_LOG, JSON.stringify({
-  apiVersion: "loop-engineering/v1",
+  apiVersion: "superloop/v2",
   loop: "evolution-command-loop",
   runId: process.env.LOOP_RUN_ID,
   startedAt: now,
@@ -696,7 +696,7 @@ test("command executor cannot report real execution as an uncounted dry-run", as
     fs.writeFileSync(script, `
 const fs = require("node:fs");
 fs.writeFileSync(process.env.LOOP_RUN_LOG, JSON.stringify({
-  apiVersion: "loop-engineering/v1",
+  apiVersion: "superloop/v2",
   loop: "command-dry-run-loop",
   runId: process.env.LOOP_RUN_ID,
   startedAt: new Date().toISOString(),
@@ -755,7 +755,7 @@ test("command budget overruns are durably counted with observed usage", async ()
 const fs = require("node:fs");
 const now = new Date().toISOString();
 fs.writeFileSync(process.env.LOOP_RUN_LOG, JSON.stringify({
-  apiVersion: "loop-engineering/v1",
+  apiVersion: "superloop/v2",
   loop: "budget-overrun-loop",
   runId: process.env.LOOP_RUN_ID,
   startedAt: now,

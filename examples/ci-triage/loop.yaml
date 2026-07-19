@@ -1,4 +1,4 @@
-apiVersion: loop-engineering/v1
+apiVersion: superloop/v2
 kind: Loop
 metadata:
   name: ci-triage
@@ -36,7 +36,7 @@ handoff:
   isolation: worktree
   worktree:
     enabled: true
-    branchPrefix: loop-engineering/ci-triage
+    branchPrefix: superloop/ci-triage
   permissions:
     - read-repo
     - write-worktree
@@ -60,10 +60,10 @@ verification:
     - blocked
     - needs-human
 persistence:
-  statePath: ".loop-engineering/loops/ci-triage/state.json"
-  runLogDir: ".loop-engineering/loops/ci-triage/runs"
-  inboxPath: ".loop-engineering/loops/ci-triage/inbox.md"
-  decisionsPath: ".loop-engineering/loops/ci-triage/decisions.md"
+  statePath: ".superloop/loops/ci-triage/state.json"
+  runLogDir: ".superloop/loops/ci-triage/runs"
+  inboxPath: ".superloop/loops/ci-triage/inbox.md"
+  decisionsPath: ".superloop/loops/ci-triage/decisions.md"
 schedule:
   runtime: github-actions
   cadence: "0 9 * * 1-5"

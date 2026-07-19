@@ -1,11 +1,11 @@
 {
-  "name": "loop-engineering",
+  "name": "superloop",
   "interface": {
-    "displayName": "Loop-Engineering"
+    "displayName": "SuperLoop"
   },
   "plugins": [
     {
-      "name": "loop-engineering",
+      "name": "superloop",
       "source": {
         "source": "url",
         "url": "./"

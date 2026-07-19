@@ -1,8 +1,8 @@
-# Positioning: Loop-Engineering
+# Positioning: SuperLoop
 
 Most users do not begin with a protocol. They begin with an idea such as “keep this repository healthy,” “track this market,” or “take this complex outcome from concept to a finished deliverable.” The first hard problem is not repetition; it is turning that idea into an observable goal, a safe authority boundary, and evidence that can prove whether the work helped.
 
-Loop-Engineering turns a vague idea into a **high-quality, verifiable Goal Contract plus a suggested Loop structure**, then stops for human review before anything becomes executable.
+SuperLoop turns a vague idea into a **high-quality, verifiable Goal Contract plus a suggested Loop structure**, then stops for human review before anything becomes executable.
 
 ```text
 vague idea
@@ -16,7 +16,7 @@ vague idea
   -> measured strategy evolution, when justified
 ```
 
-One sentence of positioning: **Loop-Engineering is the Agent Skill that compiles vague recurring or finite long-horizon intent into a reviewable, verifiable, and bounded agent loop.**
+One sentence of positioning: **SuperLoop is the Agent Skill that compiles vague recurring or finite long-horizon intent into a reviewable, verifiable, and bounded agent loop.**
 
 ## Why the proposal layer matters
 
@@ -45,7 +45,7 @@ idea -> goal -> proposal -> contract -> prompt -> context -> harness -> loop
 
 The loop decides when and under what limits the layers beneath it run again. Scheduling, worktrees, skills, subagents, and external memory make that control surface practical, but repetition alone is not engineering. Objective, authority, evidence, state, and stop conditions require explicit contracts.
 
-Loop-Engineering's bet: once loops become how recurring agent work gets done, the loop itself needs a **portable, reviewable, mechanically checkable contract**. That contract should not belong to one model or vendor.
+SuperLoop's bet: once loops become how recurring agent work gets done, the loop itself needs a **portable, reviewable, mechanically checkable contract**. That contract should not belong to one model or vendor.
 
 ## The protocol models a portable control cycle
 
@@ -60,9 +60,9 @@ After a proposal is approved and compiled, `loop.yaml` encodes the shared contro
 | Persist | `persistence` | state, run logs, inbox, and decisions outside chat |
 | Schedule | `schedule` + `safety` | cadence, timeout, budgets, retry caps, and human gates |
 
-Common implementation pieces have Loop-Engineering counterparts: a manual GitHub Actions preflight scaffold, worktrees, rendered executor Skills, worker/evaluator subagents, and external memory in `state.json`, `inbox.md`, and `decisions.md`. Connectors remain the responsibility of the agent's own integration layer.
+Common implementation pieces have SuperLoop counterparts: a manual GitHub Actions preflight scaffold, worktrees, rendered executor Skills, worker/evaluator subagents, and external memory in `state.json`, `inbox.md`, and `decisions.md`. Connectors remain the responsibility of the agent's own integration layer.
 
-## What Loop-Engineering hardens
+## What SuperLoop hardens
 
 - **Intent debt**: the Goal Contract and proposal record what success, failure, and exclusion mean before the first run.
 - **Verification debt**: the validator requires evaluator independence and evidence artifacts; a passing evaluator still does not bypass human authority.
@@ -73,7 +73,7 @@ Common implementation pieces have Loop-Engineering counterparts: a manual GitHub
 - **Completion drift**: finite Parts cannot unlock out of order, intermediate success cannot masquerade as whole-Goal completion, and the final Goal Gate is independently evidenced.
 - **Strategy folklore**: improvement claims require matched benchmark cases, exact strategy attribution, independent evidence, and a promotion threshold.
 
-The same shape can scale beyond a local script when deterministic gates, model-driven steps, durable evidence, and human decisions are composed into one reviewed pipeline. Loop-Engineering specifies that shape once and keeps it portable; it does not claim every workload should use it.
+The same shape can scale beyond a local script when deterministic gates, model-driven steps, durable evidence, and human decisions are composed into one reviewed pipeline. SuperLoop specifies that shape once and keeps it portable; it does not claim every workload should use it.
 
 ## Repetition versus improvement
 
@@ -90,7 +90,7 @@ The product therefore supports self-correction at two honest levels:
 
 **A fixed Part graph is not a general orchestrator.** Protocol v1 can model a finite acyclic Work Plan and process only dependency-ready Parts, with a deterministic order and bounded concurrency. It does not support runtime-authored plan expansion, arbitrary distributed workflows, or silent scope changes; those require a new proposal revision or another orchestration layer.
 
-**Long-running is not the same as one long process.** Loop-Engineering favors small, resumable iterations that land evidence and update state. It is a durable control system, not an endurance demonstration.
+**Long-running is not the same as one long process.** SuperLoop favors small, resumable iterations that land evidence and update state. It is a durable control system, not an endurance demonstration.
 
 **Feedback quality limits self-correction.** A weak or gameable metric produces weak evolution. Independent evaluation, raw evidence, and matched cases reduce self-deception but cannot manufacture a valid success signal.
 
@@ -106,4 +106,4 @@ The product therefore supports self-correction at two honest levels:
 - **Next**: provider-native executors, richer human gate files, scheduling, and worker rebuilding from durable state.
 - **Later**: process-level checkpoint evidence and explicitly reviewed plan-transition tooling when real workloads require safe replanning.
 
-Loop-Engineering is not a claim that loops solve everything. It is a claim that vague recurring or composite intent deserves a goal before it gets a loop, and every loop deserves a contract before it gets authority.
+SuperLoop is not a claim that loops solve everything. It is a claim that vague recurring or composite intent deserves a goal before it gets a loop, and every loop deserves a contract before it gets authority.

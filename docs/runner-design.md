@@ -1,6 +1,6 @@
 # Local Runner (`loopd`)
 
-`loopd` is the local reference runtime for validated Loop-Engineering contracts.
+`loopd` is the local reference runtime for validated SuperLoop contracts.
 
 ## Execution flow
 
@@ -42,7 +42,7 @@ The active lease carries a random owner token, loop generation and contract dige
 - `LOOP_STRATEGY_VERSION`
 - `LOOP_STRATEGY_SHA256`
 
-The command executor runs with the current user's OS permissions. `--allow-command` authorizes the configured local command transport only; it does not override Loop-Engineering human gates or the user's stated scope. For a finite plan, the serialized `LOOP_PLAN` is authoritative for phase, eligible/locked Parts, exact Part digests, and the Goal basis digest; the command may not rediscover or mutate Parts. Commands must remain in the foreground and must not daemonize or leave background children; the reference Runner is not a process-group or container sandbox.
+The command executor runs with the current user's OS permissions. `--allow-command` authorizes the configured local command transport only; it does not override SuperLoop human gates or the user's stated scope. For a finite plan, the serialized `LOOP_PLAN` is authoritative for phase, eligible/locked Parts, exact Part digests, and the Goal basis digest; the command may not rediscover or mutate Parts. Commands must remain in the foreground and must not daemonize or leave background children; the reference Runner is not a process-group or container sandbox.
 
 ## External schedulers
 

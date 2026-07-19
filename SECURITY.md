@@ -1,6 +1,6 @@
 # Security Policy
 
-Loop-Engineering is a workflow design and validation toolkit. It should not be treated as a permission system by itself.
+SuperLoop is a workflow design and validation toolkit. It should not be treated as a permission system by itself.
 
 ## Supported Versions
 

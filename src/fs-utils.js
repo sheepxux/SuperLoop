@@ -114,7 +114,7 @@ export function fsyncDirectory(directory) {
 
 export function loopAdminLockPath(loopDir) {
   const root = path.dirname(path.resolve(loopDir));
-  return path.join(root, ".loop-engineering-admin-locks", `${path.basename(path.resolve(loopDir))}.lock`);
+  return path.join(root, ".superloop-admin-locks", `${path.basename(path.resolve(loopDir))}.lock`);
 }
 
 export function withFileLock(lockPath, callback, { timeoutMs = 10_000, staleMs = 300_000 } = {}) {

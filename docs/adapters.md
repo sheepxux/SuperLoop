@@ -2,7 +2,7 @@
 
 ## Canonical Skill
 
-`skills/loop-engineering/` is the only product Skill source. Codex and Claude Code plugins both load that directory. Do not maintain separate platform copies of its instructions.
+`skills/superloop/` is the only product Skill source. Codex and Claude Code plugins both load that directory. Do not maintain separate platform copies of its instructions.
 
 Install it with a versioned plugin/Skill command, or use:
 
@@ -24,8 +24,8 @@ Rendered instance Skills are intentionally different from the product Skill: the
 ## Invariants
 
 - Render only a schema-valid loop.
-- Never overwrite the canonical `loop-engineering` Skill with an instance.
+- Never overwrite the canonical `superloop` Skill with an instance.
 - Keep worker and evaluator contexts separate.
 - Treat generated commands as untrusted until inspected.
-- Pin public runtime installation to the GitHub `v1.1.0` tag; npm is an optional second distribution channel.
+- Pin public runtime installation to the GitHub `v2.0.0` tag; npm is an optional second distribution channel.
 - Do not schedule the GitHub Actions scaffold until a trusted executor, durable state channel, least-privilege permissions, and secret policy are added.

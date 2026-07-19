@@ -1,0 +1,49 @@
+apiVersion: superloop/v2
+kind: Loop
+metadata:
+  name: unsafe-review-fixture
+  owner: engineering
+  description: "Intentionally unsafe eval fixture with self-evaluation and no budget object."
+  risk: high
+  tags: [eval-fixture]
+goal:
+  objective: "Modify repository code every day."
+  acceptanceCriteria: ["Worker says the change is complete."]
+  stopConditions: ["Worker stops."]
+  blockedConditions: []
+discovery:
+  sources: [{ type: manual, description: "All open requests." }]
+  ranking: { strategy: "Worker choice.", deterministicFirst: false }
+  maxItemsPerRun: 100
+handoff:
+  worker: same-agent
+  isolation: none
+  worktree: { enabled: false, branchPrefix: unsafe/review }
+  permissions: [read-repo, write-worktree, open-pr]
+  prompt: "Change code and approve your own work."
+verification:
+  evaluator: same-agent
+  independent: false
+  defaultStance: trust-worker
+  requiredEvidence: []
+  commands: []
+  verdicts: [pass, fail, blocked, needs-human]
+persistence:
+  statePath: .superloop/loops/unsafe-review-fixture/state.json
+  runLogDir: .superloop/loops/unsafe-review-fixture/runs
+  inboxPath: .superloop/loops/unsafe-review-fixture/inbox.md
+  decisionsPath: .superloop/loops/unsafe-review-fixture/decisions.md
+schedule:
+  runtime: manual
+  cadence: manual
+  timezone: UTC
+  timeoutMinutes: 999
+  concurrency: { group: unsafe-review-fixture, cancelInProgress: false }
+safety:
+  retries: { maxRetriesPerItem: 99, onRepeatedFailure: keep-open }
+  humanGates:
+    autoAllowed: [open-pull-request]
+    needsReview: []
+    humanOnly: []
+  failurePolicy: { onBudgetExceeded: stop-run, onUnsafeAction: block }
+outputs: [pull-request]

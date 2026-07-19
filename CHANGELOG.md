@@ -1,5 +1,16 @@
 # Changelog / 更新日志
 
+## v2.0.0 — SuperLoop identity and protocol v2 / SuperLoop 完整命名与 v2 协议
+
+- Renamed the npm package to `@sheepxux/superloop`, the canonical Skill and plugin ID to `superloop`, and the repository to `sheepxux/SuperLoop`.
+- Introduced `apiVersion: superloop/v2` across contracts, state, evaluator evidence, proposals, decisions, strategies, and experiments.
+- Moved the canonical runtime root to `.superloop/loops` and the administrative lock root to `.superloop-admin-locks`.
+- Renamed the canonical Skill directory to `skills/superloop` and updated Codex, Claude Code, ChatGPT, OpenClaw, and generic-harness adapters.
+- Treats the v1-to-v2 identity change as a contract migration: provenance-bound v1 contracts require a digest-linked proposal revision and fresh human approval; prior Part/Goal passes do not transfer automatically.
+- Updated every current schema ID, installation example, package fallback, generated template, example, test, and release manifest to the SuperLoop v2 identity.
+
+中文摘要：本版本完成 SuperLoop 的全量技术重命名：包名、Skill/插件标识、GitHub 地址、协议版本和持久状态目录全部进入新的正式命名。由于协议和路径属于获批契约的一部分，已有 v1 Loop 必须通过父提案相连的 revision、重新审批和新的 v2 初始化迁移，不能原地改写或自动继承既有通过状态。
+
 ## v1.1.0 — Idea-to-Loop design plane / 想法到循环设计层
 
 - Added a first-class `Propose` mode that turns vague recurring ideas into evidence-bearing Goal Contracts and non-executable `LoopProposal` artifacts.

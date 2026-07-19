@@ -1,4 +1,4 @@
-apiVersion: loop-engineering/v1
+apiVersion: superloop/v2
 kind: Loop
 metadata:
   name: self-improving-development
@@ -33,7 +33,7 @@ handoff:
   isolation: worktree
   worktree:
     enabled: true
-    branchPrefix: loop-engineering/self-improving-development
+    branchPrefix: superloop/self-improving-development
   permissions:
     - read-repo
     - write-worktree
@@ -54,12 +54,12 @@ verification:
     - blocked
     - needs-human
 persistence:
-  statePath: ".loop-engineering/loops/self-improving-development/state.json"
-  runLogDir: ".loop-engineering/loops/self-improving-development/runs"
-  inboxPath: ".loop-engineering/loops/self-improving-development/inbox.md"
-  decisionsPath: ".loop-engineering/loops/self-improving-development/decisions.md"
-  strategyPath: ".loop-engineering/loops/self-improving-development/strategy.json"
-  experimentDir: ".loop-engineering/loops/self-improving-development/experiments"
+  statePath: ".superloop/loops/self-improving-development/state.json"
+  runLogDir: ".superloop/loops/self-improving-development/runs"
+  inboxPath: ".superloop/loops/self-improving-development/inbox.md"
+  decisionsPath: ".superloop/loops/self-improving-development/decisions.md"
+  strategyPath: ".superloop/loops/self-improving-development/strategy.json"
+  experimentDir: ".superloop/loops/self-improving-development/experiments"
 schedule:
   runtime: manual
   cadence: "manual"

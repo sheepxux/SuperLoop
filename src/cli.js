@@ -113,13 +113,13 @@ function initCommand(args) {
   if (!name) {
     throw new Error(
       "Usage: loopctl init <loop-name> --from <loop.yaml> --out <directory> [--force]. "
-      + "For approved contracts, <loop-name> must equal metadata.name and --out must be .loop-engineering/loops."
+      + "For approved contracts, <loop-name> must equal metadata.name and --out must be .superloop/loops."
     );
   }
 
   const options = parseOptions(args.slice(1));
-  const source = options.from || path.join(repoRoot, "skills", "loop-engineering", "assets", "loop.yaml");
-  const outRoot = options.out || ".loop-engineering/loops";
+  const source = options.from || path.join(repoRoot, "skills", "superloop", "assets", "loop.yaml");
+  const outRoot = options.out || ".superloop/loops";
   const force = options.force === true;
   const spec = readData(source);
   const approvedContract = spec.metadata?.provenance !== undefined;
@@ -131,7 +131,7 @@ function initCommand(args) {
   }
   if (!approvedContract) {
     spec.metadata.name = name;
-    const contractRoot = path.posix.join(".loop-engineering", "loops", name);
+    const contractRoot = path.posix.join(".superloop", "loops", name);
     spec.persistence.statePath = path.posix.join(contractRoot, "state.json");
     spec.persistence.runLogDir = path.posix.join(contractRoot, "runs");
     spec.persistence.inboxPath = path.posix.join(contractRoot, "inbox.md");
@@ -172,7 +172,7 @@ function initCommand(args) {
   }
   writeYaml(path.join(loopDir, "loop.yaml"), spec);
   const state = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: name,
     generation: crypto.randomUUID(),
     contractSha256: sha256Json(spec),
@@ -317,7 +317,7 @@ function evolveCommand(args) {
 
 function statusCommand(args) {
   const options = parseOptions(args);
-  const statuses = statusLoops({ root: options.root || ".loop-engineering/loops" });
+  const statuses = statusLoops({ root: options.root || ".superloop/loops" });
   if (options.json === true) {
     console.log(JSON.stringify(statuses, null, 2));
     return;
@@ -674,7 +674,7 @@ function approvalCommand(args) {
     throw new Error("Strategy approval requires a non-empty approver and a meaningful reason.");
   }
   const approval = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: experiment.loop,
     experimentId: experiment.experimentId,
     experimentSha256: digest,
@@ -750,21 +750,21 @@ function parseOptions(args) {
 
 function normalizeBranchPrefix(prefix, name) {
   if (prefix.includes("example-loop") || prefix.includes("loop-example") || prefix.startsWith("codex/")) {
-    return `loop-engineering/${name}`;
+    return `superloop/${name}`;
   }
   return prefix;
 }
 
 function assertApprovedInitLayout(spec, name, outRoot) {
-  const requiredOutRoot = path.resolve(".loop-engineering", "loops");
+  const requiredOutRoot = path.resolve(".superloop", "loops");
   if (path.resolve(outRoot) !== requiredOutRoot) {
     throw new Error(
-      "A provenance-bound approved contract must be initialized with --out .loop-engineering/loops "
+      "A provenance-bound approved contract must be initialized with --out .superloop/loops "
       + "so runtime files stay at the reviewed persistence paths. Revise and re-approve to change them."
     );
   }
 
-  const contractRoot = path.posix.join(".loop-engineering", "loops", name);
+  const contractRoot = path.posix.join(".superloop", "loops", name);
   const expected = {
     statePath: path.posix.join(contractRoot, "state.json"),
     runLogDir: path.posix.join(contractRoot, "runs"),
@@ -855,7 +855,7 @@ Commands:
   strategy rollback <loop-dir> [options]  Restore archived strategy behavior as a new version
   approval create <loop-dir> [options]    Create a human approval bound to a pending experiment
   experiment reject <loop-dir> [options] Reject a pending experiment with an immutable human decision
-  migrate <loop-dir|loop.yaml> [options]  Add v1.0.2 generation, contract, and strategy digest anchors
+  migrate <loop-dir|loop.yaml> [options]  Add missing generation, contract, and strategy digest anchors
 
 Adapters:
   ${[...RENDERERS].join(", ")}

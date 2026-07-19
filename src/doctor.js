@@ -50,27 +50,27 @@ const REQUIRED_FILES = [
   "templates/experiment.json",
   "templates/approval.json",
   "templates/decision.json",
-  "skills/loop-engineering/SKILL.md",
-  "skills/loop-engineering/agents/openai.yaml",
-  "skills/loop-engineering/references/suitability-and-patterns.md",
-  "skills/loop-engineering/references/idea-to-loop.md",
-  "skills/loop-engineering/references/work-plans.md",
-  "skills/loop-engineering/references/contract-design.md",
-  "skills/loop-engineering/references/execution-and-evaluation.md",
-  "skills/loop-engineering/references/runtime-integrations.md",
-  "skills/loop-engineering/references/strategy-evolution.md",
-  "skills/loop-engineering/references/safety-and-governance.md",
-  "skills/loop-engineering/references/troubleshooting.md",
-  "skills/loop-engineering/scripts/run-loopctl.mjs",
-  "skills/loop-engineering/assets/loop.yaml",
-  "skills/loop-engineering/assets/proposal.yaml",
-  "skills/loop-engineering/assets/proposal-decision.json",
-  "skills/loop-engineering/assets/goal-evaluation.json",
-  "skills/loop-engineering/assets/decision.json",
-  "skills/loop-engineering/assets/icon-small.png",
-  "skills/loop-engineering/assets/icon-large.png",
-  "skills/loop-engineering/evals/evals.json",
-  "skills/loop-engineering/evals/results-v1.1.0.json",
+  "skills/superloop/SKILL.md",
+  "skills/superloop/agents/openai.yaml",
+  "skills/superloop/references/suitability-and-patterns.md",
+  "skills/superloop/references/idea-to-loop.md",
+  "skills/superloop/references/work-plans.md",
+  "skills/superloop/references/contract-design.md",
+  "skills/superloop/references/execution-and-evaluation.md",
+  "skills/superloop/references/runtime-integrations.md",
+  "skills/superloop/references/strategy-evolution.md",
+  "skills/superloop/references/safety-and-governance.md",
+  "skills/superloop/references/troubleshooting.md",
+  "skills/superloop/scripts/run-loopctl.mjs",
+  "skills/superloop/assets/loop.yaml",
+  "skills/superloop/assets/proposal.yaml",
+  "skills/superloop/assets/proposal-decision.json",
+  "skills/superloop/assets/goal-evaluation.json",
+  "skills/superloop/assets/decision.json",
+  "skills/superloop/assets/icon-small.png",
+  "skills/superloop/assets/icon-large.png",
+  "skills/superloop/evals/evals.json",
+  "skills/superloop/evals/results-v2.0.0.json",
   "scripts/package-smoke.js",
   "adapters/chatgpt/SKILL.md",
   "adapters/openclaw/loop-instructions.md",
@@ -168,8 +168,8 @@ function checkRequiredFiles(checks, root = repoRoot) {
 function checkPackageMetadata(checks, root = repoRoot) {
   const pkg = readData(path.join(root, "package.json"));
   checks.push({
-    ok: pkg.name === "@sheepxux/loop-engineering",
-    message: "package name is @sheepxux/loop-engineering"
+    ok: pkg.name === "@sheepxux/superloop",
+    message: "package name is @sheepxux/superloop"
   });
   checks.push({ ok: Boolean(pkg.version), message: "package version is set" });
   checks.push({ ok: pkg.author === "sheepxux", message: "package author is sheepxux" });
@@ -191,7 +191,7 @@ function checkDistributionVersions(checks, root = repoRoot) {
   const codex = readData(path.join(root, ".codex-plugin", "plugin.json"));
   const claude = readData(path.join(root, ".claude-plugin", "plugin.json"));
   const marketplace = readData(path.join(root, ".claude-plugin", "marketplace.json"));
-  const evalResults = readData(path.join(root, "skills", "loop-engineering", "evals", `results-v${pkg.version}.json`));
+  const evalResults = readData(path.join(root, "skills", "superloop", "evals", `results-v${pkg.version}.json`));
   for (const [name, version] of [
     ["Codex plugin", codex.version],
     ["Claude plugin", claude.version],
@@ -200,12 +200,14 @@ function checkDistributionVersions(checks, root = repoRoot) {
     checks.push({ ok: version === pkg.version, message: `${name} version matches package version ${pkg.version}` });
   }
   checks.push({
-    ok: evalResults.version === pkg.version && evalResults.skill_name === "loop-engineering",
-    message: `fresh-session eval evidence matches package version ${pkg.version}`
+    ok: evalResults.version === pkg.version
+      && evalResults.skill_name === "superloop"
+      && ["fresh-session", "migration-review"].includes(evalResults.evidence_type),
+    message: `${evalResults.evidence_type || "untyped"} Skill eval evidence matches package version ${pkg.version}`
   });
-  const helper = readText(path.join(root, "skills", "loop-engineering", "scripts", "run-loopctl.mjs"));
+  const helper = readText(path.join(root, "skills", "superloop", "scripts", "run-loopctl.mjs"));
   checks.push({
-    ok: helper.includes(`Loop-Engineering#v${pkg.version}`),
+    ok: helper.includes(`SuperLoop#v${pkg.version}`),
     message: `Skill runtime helper pins GitHub runtime v${pkg.version}`
   });
   const claudeEntry = marketplace.plugins?.find((entry) => entry.name === claude.name);
@@ -223,7 +225,7 @@ function checkDistributionVersions(checks, root = repoRoot) {
 }
 
 function checkCanonicalSkill(checks, root = repoRoot) {
-  const result = validateSkillPackage(path.join(root, "skills", "loop-engineering"));
+  const result = validateSkillPackage(path.join(root, "skills", "superloop"));
   checks.push({
     ok: result.ok,
     message: result.ok
@@ -322,7 +324,7 @@ function checkSkillAssetsInSync(checks, root = repoRoot) {
     "approval.json",
     "decision.json"
   ]) {
-    const skillAsset = path.join(root, "skills", "loop-engineering", "assets", name);
+    const skillAsset = path.join(root, "skills", "superloop", "assets", name);
     const compatibilityTemplate = path.join(root, "templates", name);
     const ok = fs.existsSync(skillAsset) && fs.existsSync(compatibilityTemplate) && readText(skillAsset) === readText(compatibilityTemplate);
     checks.push({

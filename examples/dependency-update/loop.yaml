@@ -1,4 +1,4 @@
-apiVersion: loop-engineering/v1
+apiVersion: superloop/v2
 kind: Loop
 metadata:
   name: dependency-update
@@ -35,7 +35,7 @@ handoff:
   isolation: worktree
   worktree:
     enabled: true
-    branchPrefix: loop-engineering/dependency-update
+    branchPrefix: superloop/dependency-update
   permissions:
     - read-repo
     - write-worktree
@@ -59,10 +59,10 @@ verification:
     - blocked
     - needs-human
 persistence:
-  statePath: ".loop-engineering/loops/dependency-update/state.json"
-  runLogDir: ".loop-engineering/loops/dependency-update/runs"
-  inboxPath: ".loop-engineering/loops/dependency-update/inbox.md"
-  decisionsPath: ".loop-engineering/loops/dependency-update/decisions.md"
+  statePath: ".superloop/loops/dependency-update/state.json"
+  runLogDir: ".superloop/loops/dependency-update/runs"
+  inboxPath: ".superloop/loops/dependency-update/inbox.md"
+  decisionsPath: ".superloop/loops/dependency-update/decisions.md"
 schedule:
   runtime: manual
   cadence: "manual"

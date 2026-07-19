@@ -1,0 +1,7 @@
+interface:
+  display_name: "SuperLoop"
+  short_description: "Turn ideas into verified long-horizon loops"
+  icon_small: "./assets/icon-small.png"
+  icon_large: "./assets/icon-large.png"
+  brand_color: "#000000"
+  default_prompt: "Use $superloop to turn this vague, recurring, or finite long-horizon idea into a non-executable LoopProposal with a verifiable Goal Contract and suggested loop structure. For a composite finite outcome, define one fixed Work Plan with dependency-ready Parts, Part Gates, and a final Goal Gate. Ask at most three material questions, make safe assumptions explicit, route bounded one-shot or deterministic work to a smaller alternative, and stop for human confirmation before compiling, scaffolding, scheduling, or executing the loop."

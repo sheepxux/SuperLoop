@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/experiment.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/SuperLoop/v2.0.0/protocol/experiment.schema.json",
   "title": "Strategy Evolution Experiment",
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "loop", "experimentId", "metric", "benchmark", "baseline", "candidate", "evaluator", "evidence", "recommendation"],
   "properties": {
-    "apiVersion": { "type": "string", "const": "loop-engineering/v1" },
+    "apiVersion": { "type": "string", "const": "superloop/v2" },
     "loop": { "type": "string", "minLength": 1 },
     "experimentId": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9._-]+$" },
     "metric": { "type": "string", "minLength": 2 },

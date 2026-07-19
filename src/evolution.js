@@ -18,7 +18,7 @@ export function initialEvolutionState(strategy = null) {
 
 export function initialStrategy(spec, loopName) {
   return {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loopName,
     version: 1,
     instructions: spec.evolution.initialStrategy,

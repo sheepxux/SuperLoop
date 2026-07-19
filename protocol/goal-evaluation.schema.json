@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/goal-evaluation.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/SuperLoop/v2.0.0/protocol/goal-evaluation.schema.json",
   "title": "Loop Goal Evaluation",
   "description": "Independent final evaluation of a finite WorkPlan against the complete Loop goal.",
   "type": "object",
@@ -20,7 +20,7 @@
   "properties": {
     "apiVersion": {
       "type": "string",
-      "const": "loop-engineering/v1"
+      "const": "superloop/v2"
     },
     "loop": {
       "type": "string",

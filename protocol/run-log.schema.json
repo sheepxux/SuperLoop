@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/run-log.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/SuperLoop/v2.0.0/protocol/run-log.schema.json",
   "title": "Loop Run Log",
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "loop", "runId", "startedAt", "finishedAt", "status", "discovered", "results", "budget"],
   "properties": {
-    "apiVersion": { "type": "string", "const": "loop-engineering/v1" },
+    "apiVersion": { "type": "string", "const": "superloop/v2" },
     "loop": { "type": "string", "minLength": 1 },
     "runId": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
     "startedAt": { "type": "string", "minLength": 20 },

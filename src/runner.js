@@ -7,7 +7,7 @@ import { nextRun, readBoundState, readLoopState, recordRun, resolveLoop, restore
 import { validateData } from "./validation.js";
 
 export function runTick({
-  root = ".loop-engineering/loops",
+  root = ".superloop/loops",
   loopName = null,
   now = null,
   timeoutMs = null,
@@ -128,7 +128,7 @@ export function runTick({
   return outcomes;
 }
 
-export function statusLoops({ root = ".loop-engineering/loops", now = new Date() } = {}) {
+export function statusLoops({ root = ".superloop/loops", now = new Date() } = {}) {
   return discoverLoopDirs(root).map((target) => {
     try {
       const loop = resolveLoop(target);
@@ -581,7 +581,7 @@ function bindCommandDraftStrategy(loop, plan, runLog) {
 
 function baseRunLog(loop, runId, startedAt, status) {
   const log = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     runId,
     startedAt,

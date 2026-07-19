@@ -1,4 +1,4 @@
-apiVersion: loop-engineering/v1
+apiVersion: superloop/v2
 kind: Loop
 metadata:
   name: frontend-qa
@@ -38,7 +38,7 @@ handoff:
   isolation: worktree
   worktree:
     enabled: true
-    branchPrefix: loop-engineering/frontend-qa
+    branchPrefix: superloop/frontend-qa
   permissions:
     - read-repo
     - write-worktree
@@ -63,10 +63,10 @@ verification:
     - blocked
     - needs-human
 persistence:
-  statePath: ".loop-engineering/loops/frontend-qa/state.json"
-  runLogDir: ".loop-engineering/loops/frontend-qa/runs"
-  inboxPath: ".loop-engineering/loops/frontend-qa/inbox.md"
-  decisionsPath: ".loop-engineering/loops/frontend-qa/decisions.md"
+  statePath: ".superloop/loops/frontend-qa/state.json"
+  runLogDir: ".superloop/loops/frontend-qa/runs"
+  inboxPath: ".superloop/loops/frontend-qa/inbox.md"
+  decisionsPath: ".superloop/loops/frontend-qa/decisions.md"
 schedule:
   runtime: manual
   cadence: "manual"

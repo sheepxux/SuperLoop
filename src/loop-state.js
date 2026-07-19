@@ -660,7 +660,7 @@ export function migrateLoopState(loop, { now = new Date(), allowRemoteExpiredLea
           ? {
               ...entry,
               outcome: "invalidated",
-              reason: "Invalidated by v1.0.2 migration because prior evidence lacks per-strategy digest attribution."
+              reason: "Invalidated by integrity migration because prior evidence lacks per-strategy digest attribution."
             }
           : entry);
         pendingExperiment = null;
@@ -923,7 +923,7 @@ function buildRecordedRunState(loop, state, runLog, runFile, digest, budgetDate)
   }
 
   const nextState = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     loop: loop.spec.metadata.name,
     generation: state.generation,
     contractSha256: state.contractSha256,
@@ -1049,7 +1049,7 @@ function commitLoopTransaction(loop, operation, writes) {
   }
   const beforeState = readBoundState(loop);
   const journal = {
-    apiVersion: "loop-engineering/transaction-v1",
+    apiVersion: "superloop/transaction-v1",
     loop: loop.spec.metadata.name,
     operation,
     createdAt: new Date().toISOString(),
@@ -1110,7 +1110,7 @@ function validateLoopTransaction(loop, journal) {
   ]);
   if (
     !journal
-    || journal.apiVersion !== "loop-engineering/transaction-v1"
+    || journal.apiVersion !== "superloop/transaction-v1"
     || journal.loop !== loop.spec.metadata.name
     || !allowedOperations.has(journal.operation)
     || typeof journal.createdAt !== "string"
@@ -2444,7 +2444,7 @@ export function rejectPendingExperiment(
       throw new Error("Experiment rejection must occur after staging and cannot be in the future.");
     }
     const decision = {
-      apiVersion: "loop-engineering/v1",
+      apiVersion: "superloop/v2",
       loop: loop.spec.metadata.name,
       experimentId: experiment.experimentId,
       experimentSha256: digest,
@@ -2827,7 +2827,7 @@ function assertActiveLeaseAccess(
 
 function assertStateBinding(loop, state) {
   if (typeof state.generation !== "string" || typeof state.contractSha256 !== "string") {
-    throw new Error("Loop state predates v1.0.2 integrity bindings; run `loopctl migrate <loop-dir>` before continuing.");
+    throw new Error("Loop state lacks current integrity bindings; run `loopctl migrate <loop-dir>` before continuing.");
   }
   if (loop.resolvedGeneration !== null && state.generation !== loop.resolvedGeneration) {
     throw new Error("Loop state generation changed after this runtime handle was resolved; re-resolve the loop before continuing.");
@@ -2845,7 +2845,7 @@ function assertStateBinding(loop, state) {
       || state.evolution.consecutiveFailuresSinceExperiment < 0
     )
   ) {
-    throw new Error("Evolution state predates v1.0.2 experiment-trigger counters; run `loopctl migrate <loop-dir>`.");
+    throw new Error("Evolution state lacks current experiment-trigger counters; run `loopctl migrate <loop-dir>`.");
   }
 }
 

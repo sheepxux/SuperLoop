@@ -1,8 +1,8 @@
-# Loop-Engineering Architecture
+# SuperLoop Architecture
 
 ## Product boundary
 
-Loop-Engineering is a complete Agent Skill plus a portable local reference runtime. The Skill turns vague ideas into verifiable goals, decides whether a loop is appropriate, and guides continuous discovery or finite long-horizon Work Plans, execution, review, recovery, and measured strategy evolution. The runtime enforces the deterministic parts of the reviewed contract.
+SuperLoop is a complete Agent Skill plus a portable local reference runtime. The Skill turns vague ideas into verifiable goals, decides whether a loop is appropriate, and guides continuous discovery or finite long-horizon Work Plans, execution, review, recovery, and measured strategy evolution. The runtime enforces the deterministic parts of the reviewed contract.
 
 The Skill and runtime meet at explicit artifacts. Model judgment may draft a proposal; it may not silently turn that proposal into execution authority.
 
@@ -112,7 +112,7 @@ The expert direct-`loop.yaml` path remains backward-compatible only for a user-s
 ## Canonical Skill package
 
 ```text
-skills/loop-engineering/
+skills/superloop/
 ├── SKILL.md
 ├── agents/openai.yaml
 ├── references/
@@ -155,10 +155,10 @@ The product Skill handles the lifecycle across ideas and loops. A rendered insta
 
 ## Runtime persistence
 
-A provenance-bound compiled contract is initialized without mutation: the `loopctl init <name>` argument must exactly equal `loop.yaml.metadata.name`, and `--out` must be `.loop-engineering/loops`. Its reviewed persistence fields must point to the matching root below. Changing a name or path requires proposal revision and a new human approval.
+A provenance-bound compiled contract is initialized without mutation: the `loopctl init <name>` argument must exactly equal `loop.yaml.metadata.name`, and `--out` must be `.superloop/loops`. Its reviewed persistence fields must point to the matching root below. Changing a name or path requires proposal revision and a new human approval.
 
 ```text
-.loop-engineering/loops/<name>/
+.superloop/loops/<name>/
 ├── loop.yaml
 ├── state.json (generation, contract digest, strategy anchors, ledgers)
 ├── strategy.json
@@ -172,15 +172,17 @@ A provenance-bound compiled contract is initialized without mutation: the `loopc
 └── runs/<run-id>/
 ```
 
-At minimum, every proposal-compiled loop preserves `.loop-engineering/loops/<name>/{state.json,runs/,inbox.md,decisions.md}` exactly as approved. Evolution-enabled loops additionally preserve their reviewed strategy and experiment paths.
+At minimum, every proposal-compiled loop preserves `.superloop/loops/<name>/{state.json,runs/,inbox.md,decisions.md}` exactly as approved. Evolution-enabled loops additionally preserve their reviewed strategy and experiment paths.
 
 JSON/YAML writes use same-directory temporary files, file `fsync`, atomic rename or exclusive no-clobber hard-link publication, and directory `fsync` where the platform supports it. A validated, allowlisted journal makes run/state recording and experiment staging/approval/rejection/promotion/rollback recoverable across process interruption, including partially applied writes. Continuous state keeps a bounded recent-run ledger; finite Work Plans retain their full immutable run ledger so Part status, retries, resolutions, Goal attempts, and completion can be causally replayed. State lock publication and stale recovery share an atomic acquisition gate so a delayed stale-owner check cannot remove a newer owner; an orphaned gate fails closed for manually verified cleanup instead of recursively auto-reclaiming itself. Lease operations are serialized separately, and malformed or ledger-inconsistent artifacts fail closed. Strategy, approval, and rejection-decision artifacts make review, promotion, and rollback auditable. Async in-flight lease heartbeats remain a future reference-runtime improvement.
 
 For a finite Work Plan, initialization creates one state item for every approved Part in contract order plus an active lifecycle. `loopctl next` derives dependency-ready and locked Parts, and binds each eligible Part to its exact definition digest. A Part may declare its own evidence/command envelope; otherwise it inherits the Loop-level verification envelope. Passing Part evidence retains the exact expected artifact IDs, references, and SHA-256 values; every reference resolves to a distinct regular file inside the Loop directory and is rehashed on acceptance and later state reads. After every Part passes, the lifecycle moves to `goal-evaluation`; the independent Goal artifact binds the complete contract/Part/artifact basis and covers every exact Goal criterion against the full approved completion envelope. Only a passing Goal Gate writes `completedAt` and makes the Loop non-runnable. A blocked or human-required Part/Goal stays non-runnable until an audited recovery command binds a distinct actor and reason to the exact attention run.
 
-Every v1.0.2 loop state carries a generation identifier and the exact `loop.yaml` SHA-256. Leases copy both bindings, so a stale runtime handle or a force-reinitialized loop cannot commit into a different generation or contract. Evolution state separately anchors the active strategy and every retained strategy archive by version and SHA-256; attributable run evidence, benchmark arms, and case evaluations bind exact strategy digests. Trigger counters since the last experiment are distinct from since-promotion audit counters.
+Every SuperLoop v2 state carries a generation identifier and the exact `loop.yaml` SHA-256. Leases copy both bindings, so a stale runtime handle or a force-reinitialized loop cannot commit into a different generation or contract. Evolution state separately anchors the active strategy and every retained strategy archive by version and SHA-256; attributable run evidence, benchmark arms, and case evaluations bind exact strategy digests. Trigger counters since the last experiment are distinct from since-promotion audit counters.
 
-Existing v1.0.1 loop directories must be migrated with `loopctl migrate <loop-dir>` after stopping the Runner. Migration verifies the contract, active strategy, and continuous archive parent chain before writing new anchors. It marks an old pending experiment `invalidated`; rebuild it with a new ID in v1.0.2 format. Running migrate on a current consistent loop is a no-op and cannot clear pending review.
+A legacy `loop-engineering/v1` directory is immutable migration input, not an in-place v2 state directory. After stopping the old Runner and backing up its complete state, create a parent-linked proposal revision, obtain a fresh human decision, then compile and initialize a new `superloop/v2` generation under `.superloop/loops`. Historical evidence may be referenced, but accepted Part/Goal results, experiments, approvals, leases, and completion state are not copied into the new ledger.
+
+Within a supported protocol generation, `loopctl migrate <loop-dir>` verifies the contract, active strategy, and continuous archive parent chain before adding missing integrity anchors. It invalidates an old pending experiment whose evidence lacks required attribution. Running it on a current consistent loop is a no-op and cannot clear pending review; it is not a v1-to-v2 identity converter.
 
 ## Evolution boundary
 

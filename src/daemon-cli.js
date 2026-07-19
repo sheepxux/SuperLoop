@@ -11,7 +11,7 @@ export async function daemonMain(argv) {
   }
 
   const options = parseOptions(rest);
-  const root = options.root || ".loop-engineering/loops";
+  const root = options.root || ".superloop/loops";
   const loopName = typeof options.loop === "string" ? options.loop : null;
   const once = options.once === true;
   const allowCommand = options["allow-command"] === true;

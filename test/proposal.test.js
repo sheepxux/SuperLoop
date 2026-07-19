@@ -15,7 +15,7 @@ import {
 } from "../src/proposal.js";
 import { validateLoopSpec } from "../src/validation.js";
 
-const proposalAsset = path.resolve("skills/loop-engineering/assets/proposal.yaml");
+const proposalAsset = path.resolve("skills/superloop/assets/proposal.yaml");
 const loopctlBin = path.resolve("bin/loopctl.js");
 const reviewTime = new Date("2026-07-15T12:00:00Z");
 
@@ -284,7 +284,7 @@ test("candidate goal, evidence, permissions, and outputs must remain fully trace
   assert.match(result.errors.join("\n"), /candidate\.loop must not contain goalContract/);
 
   const unusablePersistence = canonicalProposal();
-  unusablePersistence.candidate.loop.persistence.statePath = ".loop-engineering/loops/example-loop/custom-state.json";
+  unusablePersistence.candidate.loop.persistence.statePath = ".superloop/loops/example-loop/custom-state.json";
   result = validateProposalSpec(unusablePersistence);
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /persistence\.statePath to equal .*state\.json/);
@@ -505,7 +505,7 @@ test("request-changes decisions carry an explicit requested change and cannot co
 });
 
 test("proposal CLI validates, decides, compiles, and refuses artifact overwrite", async () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-proposal-cli-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-proposal-cli-"));
   const proposalPath = path.join(temporary, "proposal.yaml");
   const decisionPath = path.join(temporary, "decision.json");
   const loopPath = path.join(temporary, "loop.yaml");
@@ -524,19 +524,19 @@ test("proposal CLI validates, decides, compiles, and refuses artifact overwrite"
 
   assert.equal(validateLoopSpec(readData(loopPath)).ok, true);
   await assert.rejects(
-    () => main(["init", "renamed-loop", "--from", loopPath, "--out", ".loop-engineering/loops"]),
+    () => main(["init", "renamed-loop", "--from", loopPath, "--out", ".superloop/loops"]),
     /Approved contract name is "example-loop".*Revise and re-approve/s
   );
   await assert.rejects(
     () => main(["init", "example-loop", "--from", loopPath, "--out", path.join(temporary, "loops")]),
-    /provenance-bound approved contract must be initialized with --out \.loop-engineering\/loops/
+    /provenance-bound approved contract must be initialized with --out \.superloop\/loops/
   );
   const initialized = await runCli([
-    "init", "example-loop", "--from", loopPath, "--out", ".loop-engineering/loops"
+    "init", "example-loop", "--from", loopPath, "--out", ".superloop/loops"
   ], { cwd: temporary });
   assert.equal(initialized.code, 0, initialized.stderr);
   assert.deepEqual(
-    readData(path.join(temporary, ".loop-engineering", "loops", "example-loop", "loop.yaml")),
+    readData(path.join(temporary, ".superloop", "loops", "example-loop", "loop.yaml")),
     readData(loopPath),
     "init must preserve an approved provenance-bound contract byte-for-meaning"
   );
@@ -558,7 +558,7 @@ test("proposal CLI validates, decides, compiles, and refuses artifact overwrite"
 });
 
 test("proposal CLI validates every file, verifies revisions, and creates outputs without races", async () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-proposal-race-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-proposal-race-"));
   const proposalPath = path.join(temporary, "proposal.yaml");
   const invalidPath = path.join(temporary, "invalid.yaml");
   const revisionPath = path.join(temporary, "proposal-v2.yaml");

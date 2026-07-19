@@ -26,7 +26,7 @@ test("canonical JSON rejects values outside the interoperable JSON domain", () =
 });
 
 test("artifact readers reject ambiguous duplicate JSON and YAML keys", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-canonical-json-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-canonical-json-"));
   const jsonPath = path.join(directory, "duplicate.json");
   const yamlPath = path.join(directory, "duplicate.yaml");
   fs.writeFileSync(jsonPath, '{"actor":"first","actor":"second"}\n');

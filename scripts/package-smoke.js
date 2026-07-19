@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "loop-engineering-package-smoke-"));
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "superloop-package-smoke-"));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const packageSmokeEnvironment = { ...process.env, npm_config_dry_run: "false" };
 
@@ -35,13 +35,13 @@ try {
   run(binary("loopctl"), ["doctor"], project);
   run(binary("loopctl"), ["skill", "validate"], project);
   run(binary("loopctl"), ["skill", "install", "both", "--scope", "project"], project);
-  run(binary("loopctl"), ["skill", "validate", ".agents/skills/loop-engineering"], project);
-  run(binary("loopctl"), ["skill", "validate", ".claude/skills/loop-engineering"], project);
+  run(binary("loopctl"), ["skill", "validate", ".agents/skills/superloop"], project);
+  run(binary("loopctl"), ["skill", "validate", ".claude/skills/superloop"], project);
   const proposalTemplate = path.join(
     project,
     "node_modules",
     "@sheepxux",
-    "loop-engineering",
+    "superloop",
     "templates",
     "proposal.yaml"
   );
@@ -62,28 +62,28 @@ try {
     "--decision", "proposal-decision.json", "--out", "approved-loop.yaml"
   ], project);
   run(binary("loopctl"), [
-    "init", "example-loop", "--from", "approved-loop.yaml", "--out", ".loop-engineering/loops"
+    "init", "example-loop", "--from", "approved-loop.yaml", "--out", ".superloop/loops"
   ], project);
-  run(binary("loopctl"), ["init", "package-smoke", "--out", ".loop-engineering/loops"], project);
-  run(binary("loopctl"), ["next", ".loop-engineering/loops/package-smoke"], project);
+  run(binary("loopctl"), ["init", "package-smoke", "--out", ".superloop/loops"], project);
+  run(binary("loopctl"), ["next", ".superloop/loops/package-smoke"], project);
   run(binary("loopd"), ["start", "--once", "--loop", "package-smoke"], project);
 
   const finiteExample = path.join(
     project,
     "node_modules",
     "@sheepxux",
-    "loop-engineering",
+    "superloop",
     "examples",
     "finite-project",
     "loop.yaml"
   );
   run(binary("loopctl"), ["validate", finiteExample], project);
   run(binary("loopctl"), [
-    "init", "finite-project", "--from", finiteExample, "--out", ".loop-engineering/loops"
+    "init", "finite-project", "--from", finiteExample, "--out", ".superloop/loops"
   ], project);
   const finitePlan = JSON.parse(run(
     binary("loopctl"),
-    ["next", ".loop-engineering/loops/finite-project"],
+    ["next", ".superloop/loops/finite-project"],
     project
   ));
   if (
@@ -96,7 +96,7 @@ try {
 
   const cache = path.join(temporary, "codex-cache");
   copyWithoutDependencies(root, cache);
-  const helper = path.join(cache, "skills", "loop-engineering", "scripts", "run-loopctl.mjs");
+  const helper = path.join(cache, "skills", "superloop", "scripts", "run-loopctl.mjs");
   run(process.execPath, [helper, "doctor"], project, {
     ...packageSmokeEnvironment,
     LOOP_ENGINEERING_RUNTIME_PACKAGE: tarball
@@ -110,14 +110,14 @@ try {
     staleProject,
     "node_modules",
     "@sheepxux",
-    "loop-engineering",
+    "superloop",
     "package.json"
   );
   const staleManifest = JSON.parse(fs.readFileSync(staleManifestPath, "utf8"));
   staleManifest.version = "1.0.1";
   fs.writeFileSync(staleManifestPath, `${JSON.stringify(staleManifest, null, 2)}\n`);
   fs.writeFileSync(
-    path.join(staleProject, "node_modules", "@sheepxux", "loop-engineering", "bin", "loopctl.js"),
+    path.join(staleProject, "node_modules", "@sheepxux", "superloop", "bin", "loopctl.js"),
     'process.stderr.write("stale 1.0.1 runtime was executed\\n"); process.exit(86);\n'
   );
 
@@ -125,8 +125,8 @@ try {
     ...packageSmokeEnvironment,
     LOOP_ENGINEERING_RUNTIME_PACKAGE: tarball
   });
-  if (!fallbackOutput.includes("Codex plugin version matches package version 1.1.0")) {
-    throw new Error("Runtime helper did not fall back from stale 1.0.1 to the current 1.1.0 tarball.");
+  if (!fallbackOutput.includes("Codex plugin version matches package version 2.0.0")) {
+    throw new Error("Runtime helper did not fall back from stale 1.0.1 to the current 2.0.0 tarball.");
   }
   console.log(`Package smoke passed: ${packed[0].filename}`);
 } finally {

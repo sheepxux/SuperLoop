@@ -18,7 +18,7 @@ const names = [
 ];
 
 for (const name of names) {
-  const source = path.join(repoRoot, "skills", "loop-engineering", "assets", name);
+  const source = path.join(repoRoot, "skills", "superloop", "assets", name);
   const target = path.join(repoRoot, "templates", name);
   copyFile(source, target);
   console.log(`Wrote templates/${name}`);

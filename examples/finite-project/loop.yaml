@@ -1,4 +1,4 @@
-apiVersion: loop-engineering/v1
+apiVersion: superloop/v2
 kind: Loop
 metadata:
   name: finite-project
@@ -118,10 +118,10 @@ verification:
     - blocked
     - needs-human
 persistence:
-  statePath: ".loop-engineering/loops/finite-project/state.json"
-  runLogDir: ".loop-engineering/loops/finite-project/runs"
-  inboxPath: ".loop-engineering/loops/finite-project/inbox.md"
-  decisionsPath: ".loop-engineering/loops/finite-project/decisions.md"
+  statePath: ".superloop/loops/finite-project/state.json"
+  runLogDir: ".superloop/loops/finite-project/runs"
+  inboxPath: ".superloop/loops/finite-project/inbox.md"
+  decisionsPath: ".superloop/loops/finite-project/decisions.md"
 schedule:
   runtime: manual
   cadence: "manual"

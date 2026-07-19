@@ -1,4 +1,4 @@
-apiVersion: loop-engineering/v1
+apiVersion: superloop/v2
 kind: LoopProposal
 metadata:
   id: deterministic-log-cleanup-proposal

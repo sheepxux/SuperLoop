@@ -269,7 +269,7 @@ export function createProposalDecision(
   const trustedNow = timestampFrom(now);
   const timestamp = decidedAt ?? trustedNow;
   const artifact = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     kind: "LoopProposalDecision",
     proposalId: proposal.metadata.id,
     proposalRevision: proposal.metadata.revision,

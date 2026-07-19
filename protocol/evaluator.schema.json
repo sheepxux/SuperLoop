@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/sheepxux/Loop-Engineering/v1.1.0/protocol/evaluator.schema.json",
+  "$id": "https://raw.githubusercontent.com/sheepxux/SuperLoop/v2.0.0/protocol/evaluator.schema.json",
   "title": "Evaluator Result",
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "loop", "itemId", "evaluator", "verdict", "evidence", "reasons"],
   "properties": {
-    "apiVersion": { "type": "string", "const": "loop-engineering/v1" },
+    "apiVersion": { "type": "string", "const": "superloop/v2" },
     "loop": { "type": "string", "minLength": 1 },
     "itemId": { "type": "string", "minLength": 1 },
     "partDefinitionSha256": {

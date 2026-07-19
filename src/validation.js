@@ -71,7 +71,7 @@ function schemaValidator(schemaName) {
 }
 
 export function approvedPersistenceLayoutErrors(spec) {
-  const contractRoot = path.posix.join(".loop-engineering", "loops", spec.metadata.name);
+  const contractRoot = path.posix.join(".superloop", "loops", spec.metadata.name);
   const expected = {
     statePath: path.posix.join(contractRoot, "state.json"),
     runLogDir: path.posix.join(contractRoot, "runs"),
@@ -168,7 +168,7 @@ function customChecks(spec, errors, warnings) {
     warnings.push(`persistence.runLogDir should include the loop name "${name}" for auditability.`);
   }
 
-  const expectedRoot = `.loop-engineering/loops/${name}/`;
+  const expectedRoot = `.superloop/loops/${name}/`;
   for (const [field, value] of Object.entries(spec.persistence)) {
     if (!isSafeRelativePath(value)) {
       errors.push(`persistence.${field} must be a safe repository-relative path without traversal.`);
@@ -469,7 +469,7 @@ function validateGoalContract(spec, errors) {
 function validateDecisionProvenance(provenance, errors) {
   const decision = provenance.decision;
   const reconstructed = {
-    apiVersion: "loop-engineering/v1",
+    apiVersion: "superloop/v2",
     kind: "LoopProposalDecision",
     proposalId: provenance.proposal.id,
     proposalRevision: provenance.proposal.revision,

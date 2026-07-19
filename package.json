@@ -1,7 +1,7 @@
 {
-  "name": "@sheepxux/loop-engineering",
-  "version": "1.1.0",
-  "description": "Agent Skill that compiles vague ideas into verified goals and governed durable loops.",
+  "name": "@sheepxux/superloop",
+  "version": "2.0.0",
+  "description": "SuperLoop compiles vague ideas into verified goals and governed durable agent loops.",
   "type": "module",
   "main": "./src/cli.js",
   "author": "sheepxux",
@@ -40,12 +40,12 @@
     "validate:proposals": "node ./bin/loopctl.js proposal validate templates/proposal.yaml examples/idea-to-loop/research-monitor.proposal.yaml examples/idea-to-loop/log-cleanup.proposal.yaml examples/idea-to-loop/finite-project.proposal.yaml",
     "doctor": "node ./bin/loopctl.js doctor",
     "package:smoke": "node ./scripts/package-smoke.js",
-    "smoke": "npm test && npm run validate:examples && npm run validate:proposals && npm run doctor && node ./bin/loopctl.js skill validate && node ./bin/loopd.js --help && node ./bin/loopctl.js render codex examples/ci-triage/loop.yaml --out /tmp/loop-engineering-codex && node ./bin/loopctl.js render claude-code examples/ci-triage/loop.yaml --out /tmp/loop-engineering-claude",
+    "smoke": "npm test && npm run validate:examples && npm run validate:proposals && npm run doctor && node ./bin/loopctl.js skill validate && node ./bin/loopd.js --help && node ./bin/loopctl.js render codex examples/ci-triage/loop.yaml --out /tmp/superloop-codex && node ./bin/loopctl.js render claude-code examples/ci-triage/loop.yaml --out /tmp/superloop-claude",
     "prepublishOnly": "npm run build && npm run smoke && npm run package:smoke"
   },
   "keywords": [
     "ai-agents",
-    "loop-engineering",
+    "superloop",
     "codex",
     "claude-code",
     "automation",
@@ -60,12 +60,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sheepxux/Loop-Engineering.git"
+    "url": "git+https://github.com/sheepxux/SuperLoop.git"
   },
   "bugs": {
-    "url": "https://github.com/sheepxux/Loop-Engineering/issues"
+    "url": "https://github.com/sheepxux/SuperLoop/issues"
   },
-  "homepage": "https://github.com/sheepxux/Loop-Engineering#readme",
+  "homepage": "https://github.com/sheepxux/SuperLoop#readme",
   "dependencies": {
     "ajv": "^8.17.1",
     "yaml": "^2.8.1"
